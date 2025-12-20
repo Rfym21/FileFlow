@@ -9,7 +9,7 @@ WORKDIR /app/client
 COPY client/package*.json ./
 
 # 安装依赖
-RUN npm ci
+RUN npm install --legacy-peer-deps
 
 # 复制前端源码
 COPY client/ ./

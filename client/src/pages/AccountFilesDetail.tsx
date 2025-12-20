@@ -64,9 +64,9 @@ export default function AccountFilesDetail() {
           maxSize: accountData.maxSize,
         });
         if (append) {
-          setFiles(prev => [...prev, ...accountData.files]);
+          setFiles(prev => [...prev, ...(accountData.files || [])]);
         } else {
-          setFiles(accountData.files);
+          setFiles(accountData.files || []);
         }
         setNextCursor(accountData.nextCursor);
       }

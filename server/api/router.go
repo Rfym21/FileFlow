@@ -12,6 +12,9 @@ func SetupRouter(r *gin.Engine) {
 	r.GET("/api/health", Health)
 	r.POST("/api/auth/login", Login)
 
+	// 反向代理（公开，用于代理 R2 文件）
+	r.GET("/p/:subdomain/*path", Proxy)
+
 	// 需要认证的接口
 	protected := r.Group("/api")
 	protected.Use(middleware.AuthMiddleware())

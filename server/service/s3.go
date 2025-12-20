@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"fileflow/server/config"
 	"fileflow/server/store"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -331,7 +332,7 @@ func buildPublicURL(publicDomain, key string) string {
 	// 去除 publicDomain 中的协议前缀（包括畸形格式）
 	domain := strings.TrimPrefix(publicDomain, "https://")
 	domain = strings.TrimPrefix(domain, "http://")
-	domain = strings.TrimPrefix(domain, "https//")  // 处理缺少冒号的情况
+	domain = strings.TrimPrefix(domain, "https//") // 处理缺少冒号的情况
 	domain = strings.TrimPrefix(domain, "http//")
 
 	// 去除可能的尾部斜杠
@@ -339,6 +340,19 @@ func buildPublicURL(publicDomain, key string) string {
 
 	// 去除 key 可能的开头斜杠
 	key = strings.TrimPrefix(key, "/")
+
+	// 检查是否启用代理
+	cfg := config.Get()
+	if cfg.EndpointProxy && cfg.EndpointProxyURL != "" {
+		// 提取子域名（如 pub-xxx.r2.dev -> pub-xxx）
+		subdomain := domain
+		if idx := strings.Index(domain, "."); idx > 0 {
+			subdomain = domain[:idx]
+		}
+
+		proxyURL := strings.TrimSuffix(cfg.EndpointProxyURL, "/")
+		return fmt.Sprintf("%s/%s/%s", proxyURL, subdomain, key)
+	}
 
 	return fmt.Sprintf("https://%s/%s", domain, key)
 }

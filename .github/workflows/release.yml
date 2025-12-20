@@ -50,7 +50,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.23'
           cache: false
 
       # Step 5: 清理和准备构建环境
@@ -71,7 +71,7 @@ jobs:
       - name: Build frontend
         run: |
           cd client
-          npm ci
+          npm install --legacy-peer-deps
           npm run build
 
       # Step 8: 构建多平台二进制文件

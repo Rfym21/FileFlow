@@ -106,7 +106,7 @@ jobs:
           echo "docker pull ghcr.io/${{ steps.project-info.outputs.REPO_OWNER }}/${{ steps.project-info.outputs.PROJECT_NAME }}:${{ steps.project-info.outputs.TAG }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# Run container" >> $GITHUB_STEP_SUMMARY
-          echo "docker run -p 8282:8282 -v \$(pwd)/proxy.txt:/app/config/proxy.txt ghcr.io/${{ steps.project-info.outputs.REPO_OWNER }}/${{ steps.project-info.outputs.PROJECT_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "docker run -d -p 8080:8080 -e FILEFLOW_ADMIN_USER=admin -e FILEFLOW_ADMIN_PASSWORD=your_password -e FILEFLOW_JWT_SECRET=your_jwt_secret -v ./data:/app/data ghcr.io/${{ steps.project-info.outputs.REPO_OWNER }}/${{ steps.project-info.outputs.PROJECT_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Build success notification
@@ -119,5 +119,5 @@ jobs:
           echo "🔖 Version: ${{ steps.project-info.outputs.VERSION }}"
           echo "📤 Pushed to GitHub Container Registry"
           echo "🏷️ Tags pushed:"
-          echo "  - latest (always updated)"
-          echo "  - ${{ steps.project-info.outputs.TAG }} (version tag)"
+          echo "  - latest"
+          echo "  - ${{ steps.project-info.outputs.TAG }}"
