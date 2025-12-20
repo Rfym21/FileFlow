@@ -9,7 +9,7 @@ WORKDIR /app/client
 COPY client/package*.json ./
 
 # 安装依赖
-RUN npm install --legacy-peer-deps
+RUN npm install
 
 # 复制前端源码
 COPY client/ ./
@@ -73,9 +73,6 @@ USER fileflow
 # 暴露端口
 EXPOSE 8080
 
-# 健康检查
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/api/health || exit 1
 
 # 启动应用
 CMD ["./fileflow"]
