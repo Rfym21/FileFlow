@@ -1,0 +1,60 @@
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# 文档
+*.md
+LICENSE
+docs/
+
+# 依赖目录（会在构建过程中重新安装）
+node_modules/
+vendor/
+
+# 构建产物
+client/dist/
+server/fileflow
+server/fileflow.exe
+*.exe
+
+# 环境配置
+.env
+.env.*
+!.env.example
+
+# 数据目录
+data/
+*.db
+*.sqlite
+
+# 测试
+*.test
+coverage.*
+test/
+tests/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# 操作系统
+.DS_Store
+Thumbs.db
+*.swp
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# 日志
+*.log
+logs/
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+*.cache
