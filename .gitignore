@@ -27,8 +27,6 @@ tests
 data/
 *.db
 *.sqlite
-*.json
-
 # 日志文件
 *.log
 logs/
