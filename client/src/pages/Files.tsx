@@ -1,12 +1,10 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   getFiles,
-  uploadFile,
   type AccountFiles,
 } from "@/lib/api";
 import { formatBytes } from "@/lib/utils";
@@ -15,14 +13,16 @@ import {
   Upload,
   RefreshCw,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
+import FileUploader from "@/components/FileUploader";
 
 export default function Files() {
   const navigate = useNavigate();
   const [accountFiles, setAccountFiles] = useState<AccountFiles[]>([]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showUploader, setShowUploader] = useState(false);
 
   const loadFiles = async () => {
     setLoading(true);
@@ -36,29 +36,6 @@ export default function Files() {
       setLoading(false);
     }
   };
-
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    setUploading(true);
-    try {
-      for (const file of files) {
-        await uploadFile(file);
-      }
-      await loadFiles();
-      toast.success("上传成功");
-    } catch (err) {
-      console.error("上传失败:", err);
-      toast.error(err instanceof Error ? err.message : "上传失败");
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    }
-  };
-
 
   useEffect(() => {
     loadFiles();
@@ -86,22 +63,32 @@ export default function Files() {
           </Button>
           <Button
             size="sm"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
+            onClick={() => setShowUploader(!showUploader)}
             className="flex-1 sm:flex-none"
           >
             <Upload className="mr-2 h-4 w-4" />
-            {uploading ? "上传中..." : <><span className="hidden sm:inline">上传文件</span><span className="sm:hidden">上传</span></>}
+            <span className="hidden sm:inline">上传文件</span>
+            <span className="sm:hidden">上传</span>
+            {showUploader ? (
+              <ChevronUp className="ml-1 h-4 w-4" />
+            ) : (
+              <ChevronDown className="ml-1 h-4 w-4" />
+            )}
           </Button>
-          <Input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={handleUpload}
-          />
         </div>
       </div>
+
+      {/* 上传区域 */}
+      {showUploader && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base sm:text-lg">上传文件</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <FileUploader onUploadComplete={loadFiles} />
+          </CardContent>
+        </Card>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center h-64">
@@ -112,6 +99,16 @@ export default function Files() {
           <CardContent className="flex flex-col items-center justify-center py-12">
             <FolderOpen className="h-12 w-12 text-muted-foreground mb-4" />
             <p className="text-muted-foreground">暂无文件</p>
+            {!showUploader && (
+              <Button
+                variant="outline"
+                className="mt-4"
+                onClick={() => setShowUploader(true)}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                上传文件
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"fileflow/server/config"
+	"fileflow/server/store"
 
 	"github.com/gin-gonic/gin"
 )
@@ -16,8 +16,8 @@ var proxyClient = &http.Client{
 
 // Proxy 反向代理 R2 文件
 func Proxy(c *gin.Context) {
-	cfg := config.Get()
-	if !cfg.EndpointProxy {
+	settings := store.GetSettings()
+	if !settings.EndpointProxy {
 		c.JSON(http.StatusForbidden, gin.H{"error": "代理未启用"})
 		return
 	}

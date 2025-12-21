@@ -44,10 +44,18 @@ type Token struct {
 	CreatedAt   string   `json:"createdAt"`
 }
 
+// Settings 系统设置
+type Settings struct {
+	SyncInterval     int    `json:"syncInterval"`     // 同步间隔（分钟），默认 5
+	EndpointProxy    bool   `json:"endpointProxy"`    // 启用 URL 代理
+	EndpointProxyURL string `json:"endpointProxyUrl"` // 反代 URL
+}
+
 // Data 存储的完整数据结构
 type Data struct {
 	Accounts []Account `json:"accounts"`
 	Tokens   []Token   `json:"tokens"`
+	Settings Settings  `json:"settings"`
 }
 
 // HasPermission 检查 Token 是否有指定权限

@@ -19,6 +19,7 @@ import {
   Github,
   Menu,
   X,
+  Network,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +28,7 @@ const navItems = [
   { to: "/files", icon: FolderOpen, label: "文件管理" },
   { to: "/settings", icon: Settings, label: "设置" },
   { to: "/guide", icon: BookOpen, label: "参数指南" },
+  { to: "/proxy-guide", icon: Network, label: "代理部署" },
   { to: "/api-docs", icon: FileCode, label: "API 文档" },
 ];
 

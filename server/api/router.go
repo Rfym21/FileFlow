@@ -46,5 +46,9 @@ func SetupRouter(r *gin.Engine) {
 		admin.GET("/tokens", GetTokens)
 		admin.POST("/tokens", CreateToken)
 		admin.DELETE("/tokens/:id", DeleteToken)
+
+		// 系统设置
+		admin.GET("/settings", GetSettings)
+		admin.PUT("/settings", UpdateSettings)
 	}
 }

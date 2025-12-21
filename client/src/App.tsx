@@ -8,6 +8,7 @@ import Files from "@/pages/Files";
 import AccountFilesDetail from "@/pages/AccountFilesDetail";
 import Settings from "@/pages/Settings";
 import Guide from "@/pages/Guide";
+import ProxyGuide from "@/pages/ProxyGuide";
 import ApiDocs from "@/pages/ApiDocs";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -47,6 +48,7 @@ function App() {
             <Route path="files/:accountId" element={<AccountFilesDetail />} />
             <Route path="settings" element={<Settings />} />
             <Route path="guide" element={<Guide />} />
+            <Route path="proxy-guide" element={<ProxyGuide />} />
             <Route path="api-docs" element={<ApiDocs />} />
           </Route>
         </Routes>

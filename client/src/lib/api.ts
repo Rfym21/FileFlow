@@ -279,3 +279,22 @@ export async function getFileLink(
     `/link?idGroup=${idGroup}&key=${encodeURIComponent(key)}`
   );
 }
+
+// ==================== 系统设置 API ====================
+
+export interface Settings {
+  syncInterval: number;
+  endpointProxy: boolean;
+  endpointProxyUrl: string;
+}
+
+export async function getSettings(): Promise<Settings> {
+  return request("/settings");
+}
+
+export async function updateSettings(data: Settings): Promise<Settings> {
+  return request("/settings", {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}

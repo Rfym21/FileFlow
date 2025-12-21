@@ -1,12 +1,10 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   getFiles,
-  uploadFile,
   deleteFile,
   getFileLink,
   type FileNode,
@@ -23,8 +21,11 @@ import {
   ArrowLeft,
   FolderOpen,
   Home,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import FileUploader from "@/components/FileUploader";
 
 const PAGE_SIZE = 50;
 
@@ -37,8 +38,7 @@ export default function AccountFilesDetail() {
   const [nextCursor, setNextCursor] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showUploader, setShowUploader] = useState(false);
 
   /**
    * 加载当前目录的文件
@@ -105,31 +105,6 @@ export default function AccountFilesDetail() {
   };
 
   /**
-   * 上传文件
-   */
-  const handleUploadWithPath = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const fileList = e.target.files;
-    if (!fileList || fileList.length === 0) return;
-
-    setUploading(true);
-    try {
-      for (const file of fileList) {
-        await uploadFile(file, currentPath || undefined);
-      }
-      toast.success("上传成功");
-      loadFiles(currentPath);
-    } catch (err) {
-      console.error("上传失败:", err);
-      toast.error(err instanceof Error ? err.message : "上传失败");
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    }
-  };
-
-  /**
    * 删除文件
    */
   const handleDelete = async (key: string) => {
@@ -167,6 +142,13 @@ export default function AccountFilesDetail() {
   const getBreadcrumbs = () => {
     if (!currentPath) return [];
     return currentPath.split("/").filter(p => p);
+  };
+
+  /**
+   * 上传完成后刷新
+   */
+  const handleUploadComplete = () => {
+    loadFiles(currentPath);
   };
 
   useEffect(() => {
@@ -231,22 +213,37 @@ export default function AccountFilesDetail() {
           </Button>
           <Button
             size="sm"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
+            onClick={() => setShowUploader(!showUploader)}
             className="flex-1 sm:flex-none"
           >
             <Upload className="mr-2 h-4 w-4" />
-            {uploading ? "上传中..." : "上传"}
+            上传
+            {showUploader ? (
+              <ChevronUp className="ml-1 h-4 w-4" />
+            ) : (
+              <ChevronDown className="ml-1 h-4 w-4" />
+            )}
           </Button>
-          <Input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={handleUploadWithPath}
-          />
         </div>
       </div>
+
+      {/* 上传区域 */}
+      {showUploader && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base sm:text-lg">
+              上传文件到 {currentPath || "根目录"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <FileUploader
+              onUploadComplete={handleUploadComplete}
+              defaultAccountId={accountId}
+              defaultPath={currentPath}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {/* 面包屑导航 */}
       <Card>
@@ -291,7 +288,19 @@ export default function AccountFilesDetail() {
         </CardHeader>
         <CardContent>
           {files.length === 0 ? (
-            <p className="text-muted-foreground text-sm text-center py-8">空目录</p>
+            <div className="text-center py-8">
+              <p className="text-muted-foreground text-sm">空目录</p>
+              {!showUploader && (
+                <Button
+                  variant="outline"
+                  className="mt-4"
+                  onClick={() => setShowUploader(true)}
+                >
+                  <Upload className="mr-2 h-4 w-4" />
+                  上传文件
+                </Button>
+              )}
+            </div>
           ) : (
             <div className="space-y-1">
               {files.map((item) => (

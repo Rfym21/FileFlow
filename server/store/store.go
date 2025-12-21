@@ -2,10 +2,9 @@ package store
 
 import (
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
+	"log"
 	"os"
-	"path/filepath"
 	"sync"
 
 	"fileflow/server/config"
@@ -16,61 +15,65 @@ import (
 var (
 	data     *Data
 	dataLock sync.RWMutex
-	dataFile string
+	backend  Backend
 )
 
 // Init 初始化存储
 func Init() error {
 	cfg := config.Get()
-	dataFile = filepath.Join(cfg.DataDir, "accounts.json")
 
 	// 确保数据目录存在
 	if err := os.MkdirAll(cfg.DataDir, 0755); err != nil {
 		return fmt.Errorf("创建数据目录失败: %w", err)
 	}
 
+	// 创建后端
+	var err error
+	backend, err = NewBackend()
+	if err != nil {
+		return fmt.Errorf("创建数据库后端失败: %w", err)
+	}
+
+	// 初始化后端
+	if err := backend.Init(); err != nil {
+		return fmt.Errorf("初始化数据库后端失败: %w", err)
+	}
+
+	// 获取后端类型用于日志
+	backendType, _ := ParseDatabaseURL(cfg.DatabaseURL)
+	log.Printf("使用数据库后端: %s", backendType)
+
 	// 加载数据
 	return load()
 }
 
-// load 从文件加载数据
+// Close 关闭存储
+func Close() error {
+	if backend != nil {
+		return backend.Close()
+	}
+	return nil
+}
+
+// load 从后端加载数据到内存
 func load() error {
 	dataLock.Lock()
 	defer dataLock.Unlock()
 
-	// 如果文件不存在，创建空数据
-	if _, err := os.Stat(dataFile); os.IsNotExist(err) {
-		data = &Data{
-			Accounts: []Account{},
-			Tokens:   []Token{},
-		}
-		return save()
-	}
-
-	content, err := os.ReadFile(dataFile)
+	var err error
+	data, err = backend.Load()
 	if err != nil {
-		return fmt.Errorf("读取数据文件失败: %w", err)
-	}
-
-	data = &Data{}
-	if err := json.Unmarshal(content, data); err != nil {
-		return fmt.Errorf("解析数据文件失败: %w", err)
+		return fmt.Errorf("加载数据失败: %w", err)
 	}
 
 	return nil
 }
 
-// save 保存数据到文件（内部使用，需要在锁内调用）
+// save 保存数据到后端（内部使用，需要在锁内调用）
 func save() error {
-	content, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return fmt.Errorf("序列化数据失败: %w", err)
+	if err := backend.Save(data); err != nil {
+		return fmt.Errorf("保存数据失败: %w", err)
 	}
-
-	if err := os.WriteFile(dataFile, content, 0644); err != nil {
-		return fmt.Errorf("写入数据文件失败: %w", err)
-	}
-
 	return nil
 }
 
@@ -250,4 +253,31 @@ func DeleteToken(id string) error {
 // ValidateAPIToken 验证 API Token 并返回 Token 对象
 func ValidateAPIToken(tokenValue string) (*Token, error) {
 	return GetTokenByValue(tokenValue)
+}
+
+// GetSettings 获取系统设置
+func GetSettings() Settings {
+	dataLock.RLock()
+	defer dataLock.RUnlock()
+
+	// 返回默认值如果未设置
+	settings := data.Settings
+	if settings.SyncInterval <= 0 {
+		settings.SyncInterval = 5
+	}
+	return settings
+}
+
+// UpdateSettings 更新系统设置
+func UpdateSettings(settings Settings) error {
+	dataLock.Lock()
+	defer dataLock.Unlock()
+
+	// 验证同步间隔
+	if settings.SyncInterval < 1 {
+		settings.SyncInterval = 1
+	}
+
+	data.Settings = settings
+	return save()
 }

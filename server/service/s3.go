@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"fileflow/server/config"
 	"fileflow/server/store"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -342,15 +341,15 @@ func buildPublicURL(publicDomain, key string) string {
 	key = strings.TrimPrefix(key, "/")
 
 	// 检查是否启用代理
-	cfg := config.Get()
-	if cfg.EndpointProxy && cfg.EndpointProxyURL != "" {
+	settings := store.GetSettings()
+	if settings.EndpointProxy && settings.EndpointProxyURL != "" {
 		// 提取子域名（如 pub-xxx.r2.dev -> pub-xxx）
 		subdomain := domain
 		if idx := strings.Index(domain, "."); idx > 0 {
 			subdomain = domain[:idx]
 		}
 
-		proxyURL := strings.TrimSuffix(cfg.EndpointProxyURL, "/")
+		proxyURL := strings.TrimSuffix(settings.EndpointProxyURL, "/")
 		return fmt.Sprintf("%s/%s/%s", proxyURL, subdomain, key)
 	}
 

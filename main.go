@@ -104,6 +104,12 @@ func setupStaticFiles(r *gin.Engine) {
 		r.StaticFS("/assets", http.FS(assetsFS))
 	}
 
+	// guide 子目录
+	guideFS, err := fs.Sub(subFS, "guide")
+	if err == nil {
+		r.StaticFS("/guide", http.FS(guideFS))
+	}
+
 	// favicon
 	r.GET("/favicon.svg", func(c *gin.Context) {
 		content, err := fs.ReadFile(subFS, "favicon.svg")
