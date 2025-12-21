@@ -8,7 +8,7 @@ import {
   uploadFile,
   getAccounts,
   type UploadResult,
-  type Account,
+  type AccountFull,
 } from "@/lib/api";
 import { formatBytes } from "@/lib/utils";
 import {
@@ -73,7 +73,7 @@ export default function FileUploader({
 }: FileUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accounts, setAccounts] = useState<AccountFull[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>(defaultAccountId || "");
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);

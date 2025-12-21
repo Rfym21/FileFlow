@@ -28,7 +28,6 @@ import {
   updateAccount,
   deleteAccount,
   clearBucket,
-  type Account,
   type AccountRequest,
   type AccountFull,
 } from "@/lib/api";

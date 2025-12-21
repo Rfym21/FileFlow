@@ -134,6 +134,7 @@ export interface AccountFull {
   endpoint: string;
   publicDomain: string;
   apiToken: string;
+  hasApiToken?: boolean; // 兼容性字段，可选
   quota: Quota;
   usage: Usage;
   usagePercent: number;

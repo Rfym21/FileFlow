@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Pagination } from "@/components/ui/pagination";
-import { getAccounts, syncAccounts, type Account } from "@/lib/api";
+import { getAccounts, syncAccounts, type AccountFull } from "@/lib/api";
 import { formatBytes, formatNumber } from "@/lib/utils";
 import {
   HardDrive,
@@ -25,7 +25,7 @@ import {
 const PAGE_SIZE = 6;
 
 export default function Dashboard() {
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accounts, setAccounts] = useState<AccountFull[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncingAccountId, setSyncingAccountId] = useState<string | null>(null);
@@ -285,7 +285,7 @@ export default function Dashboard() {
 /**
  * 账户状态徽章
  */
-function StatusBadge({ account }: { account: Account }) {
+function StatusBadge({ account }: { account: AccountFull }) {
   if (!account.isActive) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-destructive px-2 py-1 text-xs text-destructive-foreground">

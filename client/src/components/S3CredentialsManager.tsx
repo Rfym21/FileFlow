@@ -13,7 +13,7 @@ import {
   getAccounts,
   type S3Credential,
   type S3CredentialRequest,
-  type Account,
+  type AccountFull,
 } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 import { Plus, Trash2, RefreshCw, Copy, Check, Server } from "lucide-react";
@@ -32,7 +32,7 @@ const PERMISSIONS = [
  */
 export default function S3CredentialsManager() {
   const [credentials, setCredentials] = useState<S3Credential[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accounts, setAccounts] = useState<AccountFull[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<S3CredentialRequest>({

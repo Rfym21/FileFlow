@@ -13,7 +13,7 @@ import {
   getAccounts,
   type WebDAVCredential,
   type WebDAVCredentialRequest,
-  type Account,
+  type AccountFull,
 } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 import { Plus, Trash2, RefreshCw, Copy, Check, FolderTree } from "lucide-react";
@@ -32,7 +32,7 @@ const PERMISSIONS = [
  */
 export default function WebDAVCredentialsManager() {
   const [credentials, setCredentials] = useState<WebDAVCredential[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accounts, setAccounts] = useState<AccountFull[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<WebDAVCredentialRequest>({
