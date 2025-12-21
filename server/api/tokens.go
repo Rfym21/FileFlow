@@ -18,12 +18,12 @@ type TokenRequest struct {
 type TokenResponse struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
-	Token       string   `json:"token,omitempty"` // 仅创建时返回
+	Token       string   `json:"token"`
 	Permissions []string `json:"permissions"`
 	CreatedAt   string   `json:"createdAt"`
 }
 
-// GetTokens 获取所有 Token（不返回 token 值）
+// GetTokens 获取所有 Token
 func GetTokens(c *gin.Context) {
 	tokens := store.GetTokens()
 
@@ -32,6 +32,7 @@ func GetTokens(c *gin.Context) {
 		result = append(result, TokenResponse{
 			ID:          t.ID,
 			Name:        t.Name,
+			Token:       t.Token,
 			Permissions: t.Permissions,
 			CreatedAt:   t.CreatedAt,
 		})

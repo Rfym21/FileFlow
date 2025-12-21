@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Pagination } from "@/components/ui/pagination";
 import {
   getFiles,
   type AccountFiles,
@@ -18,11 +19,28 @@ import {
 } from "lucide-react";
 import FileUploader from "@/components/FileUploader";
 
+const PAGE_SIZE = 9;
+
 export default function Files() {
   const navigate = useNavigate();
   const [accountFiles, setAccountFiles] = useState<AccountFiles[]>([]);
   const [loading, setLoading] = useState(true);
   const [showUploader, setShowUploader] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // 分页计算
+  const totalPages = Math.ceil(accountFiles.length / PAGE_SIZE);
+  const paginatedFiles = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return accountFiles.slice(start, start + PAGE_SIZE);
+  }, [accountFiles, currentPage]);
+
+  // 当数据变化时重置页码
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [accountFiles.length, totalPages, currentPage]);
 
   const loadFiles = async () => {
     setLoading(true);
@@ -112,46 +130,55 @@ export default function Files() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-3 sm:gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-          {accountFiles.map((account) => (
-            <Card
-              key={account.id}
-              className="cursor-pointer hover:shadow-lg transition-shadow"
-              onClick={() => navigate(`/files/${account.id}`)}
-            >
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-                  <FolderOpen className="h-4 w-4 sm:h-5 sm:w-5 text-primary flex-shrink-0" />
-                  <span className="truncate">{account.accountName}</span>
-                  <ChevronRight className="h-4 w-4 ml-auto text-muted-foreground flex-shrink-0" />
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="space-y-2 text-xs sm:text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">存储占用</span>
-                    <span className="font-medium">{formatBytes(account.sizeBytes)}</span>
+        <>
+          <div className="grid gap-3 sm:gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+            {paginatedFiles.map((account) => (
+              <Card
+                key={account.id}
+                className="cursor-pointer hover:shadow-lg transition-shadow"
+                onClick={() => navigate(`/files/${account.id}`)}
+              >
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                    <FolderOpen className="h-4 w-4 sm:h-5 sm:w-5 text-primary flex-shrink-0" />
+                    <span className="truncate">{account.accountName}</span>
+                    <ChevronRight className="h-4 w-4 ml-auto text-muted-foreground flex-shrink-0" />
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="space-y-2 text-xs sm:text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">存储占用</span>
+                      <span className="font-medium">{formatBytes(account.sizeBytes)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">配额</span>
+                      <span className="font-medium">{formatBytes(account.maxSize)}</span>
+                    </div>
+                    <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
+                      <div
+                        className="bg-primary h-full transition-all"
+                        style={{
+                          width: `${Math.min(
+                            (account.sizeBytes / account.maxSize) * 100,
+                            100
+                          )}%`,
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">配额</span>
-                    <span className="font-medium">{formatBytes(account.maxSize)}</span>
-                  </div>
-                  <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
-                    <div
-                      className="bg-primary h-full transition-all"
-                      style={{
-                        width: `${Math.min(
-                          (account.sizeBytes / account.maxSize) * 100,
-                          100
-                        )}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+            totalItems={accountFiles.length}
+            pageSize={PAGE_SIZE}
+          />
+        </>
       )}
     </div>
   );

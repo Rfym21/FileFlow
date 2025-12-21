@@ -12,6 +12,8 @@ FileFlow 是一个 Cloudflare R2 云存储管理应用，提供统一的 Web 界
 - **反向代理** - 内置反向代理 + 外置代理脚本（Workers/Deno/Go），隐藏 R2 源站地址
 - **多数据库支持** - 支持 SQLite、MySQL、PostgreSQL、Redis、MongoDB、Turso
 - **API Token** - 支持生成可撤销的 API Token，用于程序化访问
+- **S3 兼容接口** - 完整的 S3 兼容 API，支持 aws-cli、boto3、rclone 等标准客户端
+- **WebDAV 接口** - 标准 WebDAV 协议，支持 Windows/macOS/Linux 文件管理器、Cyberduck 等客户端
 - **开放 API** - 完整的 RESTful API，支持文件列表、上传、删除、获取链接
 - **内置指南** - Web 界面内置参数获取指南、代理部署教程、API 文档
 
@@ -218,16 +220,171 @@ curl -H "Authorization: Bearer your-api-token" https://your-domain/api/files
 
 详细文档请参考 Web 界面「API 文档」页面。
 
+## S3 兼容接口
+
+FileFlow 提供完整的 S3 兼容 API，支持使用标准 S3 客户端直接连接操作。
+
+### 端点信息
+
+| 项目 | 值 |
+|------|-----|
+| 端点 URL | `http://your-domain:8080/s3` |
+| 区域 (Region) | `auto`（可使用任意值） |
+| 路径风格 | Path Style |
+
+### 创建 S3 凭证
+
+1. 进入「设置 → S3 凭证」页面
+2. 点击「创建凭证」，选择关联账户和权限
+3. 保存生成的 Access Key ID 和 Secret Access Key
+
+### 客户端配置示例
+
+**AWS CLI：**
+
+```bash
+# 配置凭证
+aws configure set aws_access_key_id FFLWXXXXXXXXXXXX
+aws configure set aws_secret_access_key xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# 操作示例
+aws s3 ls s3://my-bucket --endpoint-url http://localhost:8080/s3
+aws s3 cp ./file.txt s3://my-bucket/path/ --endpoint-url http://localhost:8080/s3
+```
+
+**Python (boto3)：**
+
+```python
+import boto3
+
+s3 = boto3.client('s3',
+    endpoint_url='http://localhost:8080/s3',
+    aws_access_key_id='FFLWXXXXXXXXXXXX',
+    aws_secret_access_key='xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+    region_name='auto'
+)
+
+s3.upload_file('./file.txt', 'my-bucket', 'path/file.txt')
+```
+
+**rclone：**
+
+```ini
+[fileflow]
+type = s3
+provider = Other
+access_key_id = FFLWXXXXXXXXXXXX
+secret_access_key = xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+endpoint = http://localhost:8080/s3
+```
+
+### 支持的 S3 操作
+
+| 操作 | 描述 |
+|------|------|
+| ListObjectsV2 | 列出对象 |
+| GetObject | 获取对象 |
+| HeadObject | 获取对象元数据 |
+| PutObject | 上传对象 |
+| DeleteObject | 删除对象 |
+| DeleteObjects | 批量删除 |
+| CopyObject | 复制对象 |
+| CreateMultipartUpload | 初始化分片上传 |
+| UploadPart | 上传分片 |
+| CompleteMultipartUpload | 完成分片上传 |
+| AbortMultipartUpload | 取消分片上传 |
+| ListParts | 列出已上传分片 |
+
+详细文档请参考 Web 界面「S3 接口」页面。
+
+## WebDAV 接口
+
+FileFlow 提供标准 WebDAV 协议支持，可使用各类 WebDAV 客户端直接访问。
+
+### 端点信息
+
+| 项目 | 值 |
+|------|-----|
+| 端点 URL | `http://your-domain:8080/webdav` |
+| 认证方式 | HTTP Basic Auth |
+
+### 创建 WebDAV 凭证
+
+1. 进入「设置 → WebDAV 凭证」页面
+2. 点击「创建凭证」，选择关联账户和权限
+3. 保存生成的用户名和密码
+
+### 客户端配置示例
+
+**Windows 文件资源管理器：**
+
+1. 右键「此电脑」→「映射网络驱动器」
+2. 输入地址：`http://your-domain:8080/webdav`
+3. 输入用户名和密码
+
+**macOS Finder：**
+
+1. 按 Command + K（或菜单「前往 → 连接服务器」）
+2. 输入地址：`http://your-domain:8080/webdav`
+3. 点击「连接」，输入用户名和密码
+
+**Linux（Nautilus）：**
+
+```bash
+# 在文件管理器地址栏输入
+dav://your-domain:8080/webdav
+```
+
+**Cyberduck：**
+
+1. 新建连接，选择「WebDAV (HTTP)」或「WebDAV (HTTPS)」
+2. 服务器：`your-domain:8080`
+3. 路径：`/webdav`
+4. 输入用户名和密码
+
+**命令行（curl）：**
+
+```bash
+# 列出文件
+curl -u username:password "http://localhost:8080/webdav/" -X PROPFIND
+
+# 上传文件
+curl -u username:password -T file.txt "http://localhost:8080/webdav/path/file.txt"
+
+# 下载文件
+curl -u username:password "http://localhost:8080/webdav/path/file.txt" -o file.txt
+
+# 删除文件
+curl -u username:password -X DELETE "http://localhost:8080/webdav/path/file.txt"
+```
+
+### 支持的 WebDAV 方法
+
+| 方法 | 描述 |
+|------|------|
+| PROPFIND | 列出文件和目录 |
+| GET | 下载文件 |
+| PUT | 上传文件 |
+| DELETE | 删除文件/目录 |
+| MKCOL | 创建目录 |
+| COPY | 复制文件/目录 |
+| MOVE | 移动/重命名文件 |
+| LOCK/UNLOCK | 锁定/解锁（兼容性实现） |
+
+详细文档请参考 Web 界面「WebDAV 接口」页面。
+
 ## Web 界面
 
 | 页面 | 路径 | 说明 |
 |------|------|------|
 | 仪表盘 | `/` | 账户概览、用量统计 |
 | 文件管理 | `/files` | 文件浏览、上传、删除 |
-| 设置 | `/settings` | 账户管理、Token 管理、系统设置 |
+| 设置 | `/settings` | 账户管理、令牌管理、S3 凭证、WebDAV 凭证、系统设置 |
 | 参数指南 | `/guide` | R2 账户参数获取教程 |
 | 代理部署 | `/proxy-guide` | 外置代理部署教程 |
 | API 文档 | `/api-docs` | 开放 API 使用说明 |
+| S3 接口 | `/s3-docs` | S3 兼容接口使用说明 |
+| WebDAV 接口 | `/webdav-docs` | WebDAV 接口使用说明 |
 
 ## 项目结构
 
@@ -238,6 +395,8 @@ FileFlow/
 │   ├── api/             # HTTP 处理器
 │   ├── config/          # 配置管理
 │   ├── middleware/      # 中间件
+│   ├── s3api/           # S3 兼容 API
+│   ├── webdav/          # WebDAV 协议实现
 │   ├── service/         # 业务逻辑
 │   └── store/           # 数据存储（多数据库后端）
 ├── client/              # React 前端

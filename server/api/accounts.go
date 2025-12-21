@@ -46,6 +46,29 @@ type AccountResponse struct {
 	UpdatedAt    string      `json:"updatedAt"`
 }
 
+// AccountFullResponse 账户完整响应（包含敏感字段，用于编辑）
+type AccountFullResponse struct {
+	ID              string      `json:"id"`
+	Name            string      `json:"name"`
+	IsActive        bool        `json:"isActive"`
+	Description     string      `json:"description"`
+	AccountID       string      `json:"accountId"`
+	AccessKeyId     string      `json:"accessKeyId"`
+	SecretAccessKey string      `json:"secretAccessKey"`
+	BucketName      string      `json:"bucketName"`
+	Endpoint        string      `json:"endpoint"`
+	PublicDomain    string      `json:"publicDomain"`
+	APIToken        string      `json:"apiToken"`
+	Quota           store.Quota `json:"quota"`
+	Usage           store.Usage `json:"usage"`
+	UsagePercent    float64     `json:"usagePercent"`
+	IsOverQuota     bool        `json:"isOverQuota"`
+	IsOverOps       bool        `json:"isOverOps"`
+	IsAvailable     bool        `json:"isAvailable"`
+	CreatedAt       string      `json:"createdAt"`
+	UpdatedAt       string      `json:"updatedAt"`
+}
+
 // toAccountResponse 转换为响应对象
 func toAccountResponse(acc *store.Account) AccountResponse {
 	return AccountResponse{
@@ -69,13 +92,38 @@ func toAccountResponse(acc *store.Account) AccountResponse {
 	}
 }
 
+// toAccountFullResponse 转换为完整响应对象（包含敏感字段）
+func toAccountFullResponse(acc *store.Account) AccountFullResponse {
+	return AccountFullResponse{
+		ID:              acc.ID,
+		Name:            acc.Name,
+		IsActive:        acc.IsActive,
+		Description:     acc.Description,
+		AccountID:       acc.AccountID,
+		AccessKeyId:     acc.AccessKeyId,
+		SecretAccessKey: acc.SecretAccessKey,
+		BucketName:      acc.BucketName,
+		Endpoint:        acc.Endpoint,
+		PublicDomain:    acc.PublicDomain,
+		APIToken:        acc.APIToken,
+		Quota:           acc.Quota,
+		Usage:           acc.Usage,
+		UsagePercent:    acc.GetUsagePercent(),
+		IsOverQuota:     acc.IsOverQuota(),
+		IsOverOps:       acc.IsOverOps(),
+		IsAvailable:     acc.IsAvailable(),
+		CreatedAt:       acc.CreatedAt,
+		UpdatedAt:       acc.UpdatedAt,
+	}
+}
+
 // GetAccounts 获取所有账户
 func GetAccounts(c *gin.Context) {
 	accounts := store.GetAccounts()
 
-	var result []AccountResponse
+	var result []AccountFullResponse
 	for _, acc := range accounts {
-		result = append(result, toAccountResponse(&acc))
+		result = append(result, toAccountFullResponse(&acc))
 	}
 
 	c.JSON(http.StatusOK, result)
@@ -91,7 +139,7 @@ func GetAccount(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, toAccountResponse(acc))
+	c.JSON(http.StatusOK, toAccountFullResponse(acc))
 }
 
 // CreateAccount 创建账户
@@ -127,7 +175,8 @@ func CreateAccount(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, toAccountResponse(acc))
+	// 创建后返回完整信息（包含敏感字段）
+	c.JSON(http.StatusCreated, toAccountFullResponse(acc))
 }
 
 // UpdateAccount 更新账户
@@ -173,7 +222,8 @@ func UpdateAccount(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, toAccountResponse(existing))
+	// 更新后返回完整信息（包含敏感字段）
+	c.JSON(http.StatusOK, toAccountFullResponse(existing))
 }
 
 // DeleteAccount 删除账户

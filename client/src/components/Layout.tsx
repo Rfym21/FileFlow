@@ -20,6 +20,8 @@ import {
   Menu,
   X,
   Network,
+  Server,
+  FolderTree,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +32,8 @@ const navItems = [
   { to: "/guide", icon: BookOpen, label: "参数指南" },
   { to: "/proxy-guide", icon: Network, label: "代理部署" },
   { to: "/api-docs", icon: FileCode, label: "API 文档" },
+  { to: "/s3-docs", icon: Server, label: "S3 接口" },
+  { to: "/webdav-docs", icon: FolderTree, label: "WebDAV 接口" },
 ];
 
 export default function Layout() {

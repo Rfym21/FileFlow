@@ -117,14 +117,52 @@ func (b *MySQLBackend) createTables() error {
 			value TEXT
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 	`)
+	if err != nil {
+		return err
+	}
+
+	// 创建 s3_credentials 表
+	_, err = b.db.Exec(`
+		CREATE TABLE IF NOT EXISTS s3_credentials (
+			id VARCHAR(36) PRIMARY KEY,
+			access_key_id VARCHAR(64) UNIQUE NOT NULL,
+			secret_access_key VARCHAR(64) NOT NULL,
+			account_id VARCHAR(36) NOT NULL,
+			description TEXT,
+			permissions TEXT,
+			is_active BOOLEAN DEFAULT true,
+			created_at VARCHAR(64),
+			last_used_at VARCHAR(64)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+	`)
+	if err != nil {
+		return err
+	}
+
+	// 创建 webdav_credentials 表
+	_, err = b.db.Exec(`
+		CREATE TABLE IF NOT EXISTS webdav_credentials (
+			id VARCHAR(36) PRIMARY KEY,
+			username VARCHAR(64) UNIQUE NOT NULL,
+			password VARCHAR(64) NOT NULL,
+			account_id VARCHAR(36) NOT NULL,
+			description TEXT,
+			permissions TEXT,
+			is_active BOOLEAN DEFAULT true,
+			created_at VARCHAR(64),
+			last_used_at VARCHAR(64)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+	`)
 	return err
 }
 
 // Load 从数据库加载全部数据
 func (b *MySQLBackend) Load() (*Data, error) {
 	data := &Data{
-		Accounts: []Account{},
-		Tokens:   []Token{},
+		Accounts:          []Account{},
+		Tokens:            []Token{},
+		S3Credentials:     []S3Credential{},
+		WebDAVCredentials: []WebDAVCredential{},
 	}
 
 	// 加载 accounts
@@ -224,6 +262,80 @@ func (b *MySQLBackend) Load() (*Data, error) {
 		data.Settings.EndpointProxyURL = endpointProxyURL.String
 	}
 
+	// 加载 s3_credentials
+	rows, err = b.db.Query(`
+		SELECT id, access_key_id, secret_access_key, account_id, description,
+			permissions, is_active, created_at, last_used_at
+		FROM s3_credentials
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("查询 s3_credentials 失败: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cred S3Credential
+		var description, permissions, createdAt, lastUsedAt sql.NullString
+
+		err := rows.Scan(
+			&cred.ID, &cred.AccessKeyID, &cred.SecretAccessKey, &cred.AccountID,
+			&description, &permissions, &cred.IsActive, &createdAt, &lastUsedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("扫描 s3_credential 行失败: %w", err)
+		}
+
+		cred.Description = description.String
+		if permissions.Valid && permissions.String != "" {
+			if err := json.Unmarshal([]byte(permissions.String), &cred.Permissions); err != nil {
+				cred.Permissions = []string{}
+			}
+		} else {
+			cred.Permissions = []string{}
+		}
+		cred.CreatedAt = createdAt.String
+		cred.LastUsedAt = lastUsedAt.String
+
+		data.S3Credentials = append(data.S3Credentials, cred)
+	}
+
+	// 加载 webdav_credentials
+	rows, err = b.db.Query(`
+		SELECT id, username, password, account_id, description,
+			permissions, is_active, created_at, last_used_at
+		FROM webdav_credentials
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("查询 webdav_credentials 失败: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cred WebDAVCredential
+		var description, permissions, createdAt, lastUsedAt sql.NullString
+
+		err := rows.Scan(
+			&cred.ID, &cred.Username, &cred.Password, &cred.AccountID,
+			&description, &permissions, &cred.IsActive, &createdAt, &lastUsedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("扫描 webdav_credential 行失败: %w", err)
+		}
+
+		cred.Description = description.String
+		if permissions.Valid && permissions.String != "" {
+			if err := json.Unmarshal([]byte(permissions.String), &cred.Permissions); err != nil {
+				cred.Permissions = []string{}
+			}
+		} else {
+			cred.Permissions = []string{}
+		}
+		cred.CreatedAt = createdAt.String
+		cred.LastUsedAt = lastUsedAt.String
+
+		data.WebDAVCredentials = append(data.WebDAVCredentials, cred)
+	}
+
 	return data, nil
 }
 
@@ -297,6 +409,50 @@ func (b *MySQLBackend) Save(data *Data) error {
 	_, err = tx.Exec("REPLACE INTO settings (`key`, value) VALUES ('endpoint_proxy_url', ?)", data.Settings.EndpointProxyURL)
 	if err != nil {
 		return fmt.Errorf("保存 settings 失败: %w", err)
+	}
+
+	// 清空并重新插入 s3_credentials
+	if _, err := tx.Exec("DELETE FROM s3_credentials"); err != nil {
+		return fmt.Errorf("清空 s3_credentials 失败: %w", err)
+	}
+
+	for _, cred := range data.S3Credentials {
+		permissions, _ := json.Marshal(cred.Permissions)
+
+		_, err := tx.Exec(`
+			INSERT INTO s3_credentials (
+				id, access_key_id, secret_access_key, account_id, description,
+				permissions, is_active, created_at, last_used_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`,
+			cred.ID, cred.AccessKeyID, cred.SecretAccessKey, cred.AccountID, cred.Description,
+			string(permissions), cred.IsActive, cred.CreatedAt, cred.LastUsedAt,
+		)
+		if err != nil {
+			return fmt.Errorf("插入 s3_credential 失败: %w", err)
+		}
+	}
+
+	// 清空并重新插入 webdav_credentials
+	if _, err := tx.Exec("DELETE FROM webdav_credentials"); err != nil {
+		return fmt.Errorf("清空 webdav_credentials 失败: %w", err)
+	}
+
+	for _, cred := range data.WebDAVCredentials {
+		permissions, _ := json.Marshal(cred.Permissions)
+
+		_, err := tx.Exec(`
+			INSERT INTO webdav_credentials (
+				id, username, password, account_id, description,
+				permissions, is_active, created_at, last_used_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`,
+			cred.ID, cred.Username, cred.Password, cred.AccountID, cred.Description,
+			string(permissions), cred.IsActive, cred.CreatedAt, cred.LastUsedAt,
+		)
+		if err != nil {
+			return fmt.Errorf("插入 webdav_credential 失败: %w", err)
+		}
 	}
 
 	return tx.Commit()

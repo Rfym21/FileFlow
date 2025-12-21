@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { toast } from "sonner";
 import {
   Card,
@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Pagination } from "@/components/ui/pagination";
 import { getAccounts, syncAccounts, type Account } from "@/lib/api";
 import { formatBytes, formatNumber } from "@/lib/utils";
 import {
@@ -21,11 +22,14 @@ import {
   AlertTriangle,
 } from "lucide-react";
 
+const PAGE_SIZE = 6;
+
 export default function Dashboard() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncingAccountId, setSyncingAccountId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const loadAccounts = async () => {
     try {
@@ -76,6 +80,20 @@ export default function Dashboard() {
   const totalWriteOps = accounts.reduce((sum, a) => sum + a.usage.classAOps, 0);
   const totalReadOps = accounts.reduce((sum, a) => sum + (a.usage.classBOps || 0), 0);
   const availableCount = accounts.filter((a) => a.isAvailable).length;
+
+  // 分页计算
+  const totalPages = Math.ceil(accounts.length / PAGE_SIZE);
+  const paginatedAccounts = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return accounts.slice(start, start + PAGE_SIZE);
+  }, [accounts, currentPage]);
+
+  // 当账户数据变化时重置页码
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [accounts.length, totalPages, currentPage]);
 
   if (loading) {
     return (
@@ -167,88 +185,97 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {accounts.map((account) => (
-              <Card key={account.id} className={!account.isActive ? "opacity-50 border-muted" : ""}>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">{account.name}</CardTitle>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={() => handleSyncAccount(account.id)}
-                        disabled={syncingAccountId === account.id}
-                      >
-                        <RefreshCw
-                          className={`h-4 w-4 ${
-                            syncingAccountId === account.id ? "animate-spin" : ""
-                          }`}
-                        />
-                      </Button>
-                      <StatusBadge account={account} />
+          <>
+            <div className="grid gap-4 md:grid-cols-2">
+              {paginatedAccounts.map((account) => (
+                <Card key={account.id} className={!account.isActive ? "opacity-50 border-muted" : ""}>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg">{account.name}</CardTitle>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => handleSyncAccount(account.id)}
+                          disabled={syncingAccountId === account.id}
+                        >
+                          <RefreshCw
+                            className={`h-4 w-4 ${
+                              syncingAccountId === account.id ? "animate-spin" : ""
+                            }`}
+                          />
+                        </Button>
+                        <StatusBadge account={account} />
+                      </div>
                     </div>
-                  </div>
-                  <CardDescription>{account.bucketName}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* 容量使用 */}
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span>容量使用</span>
-                      <span>
-                        {formatBytes(account.usage.sizeBytes)} /{" "}
-                        {formatBytes(account.quota.maxSizeBytes)}
-                      </span>
+                    <CardDescription>{account.bucketName}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {/* 容量使用 */}
+                    <div>
+                      <div className="flex justify-between text-sm mb-1">
+                        <span>容量使用</span>
+                        <span>
+                          {formatBytes(account.usage.sizeBytes)} /{" "}
+                          {formatBytes(account.quota.maxSizeBytes)}
+                        </span>
+                      </div>
+                      <Progress
+                        value={account.usage.sizeBytes}
+                        max={account.quota.maxSizeBytes}
+                      />
                     </div>
-                    <Progress
-                      value={account.usage.sizeBytes}
-                      max={account.quota.maxSizeBytes}
-                    />
-                  </div>
 
-                  {/* 写入操作 */}
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span>写入操作</span>
-                      <span>
-                        {formatNumber(account.usage.classAOps)} /{" "}
-                        {formatNumber(account.quota.maxClassAOps)}
-                      </span>
+                    {/* 写入操作 */}
+                    <div>
+                      <div className="flex justify-between text-sm mb-1">
+                        <span>写入操作</span>
+                        <span>
+                          {formatNumber(account.usage.classAOps)} /{" "}
+                          {formatNumber(account.quota.maxClassAOps)}
+                        </span>
+                      </div>
+                      <Progress
+                        value={account.usage.classAOps}
+                        max={account.quota.maxClassAOps}
+                      />
                     </div>
-                    <Progress
-                      value={account.usage.classAOps}
-                      max={account.quota.maxClassAOps}
-                    />
-                  </div>
 
-                  {/* 读取操作 */}
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span>读取操作</span>
-                      <span>{formatNumber(account.usage.classBOps || 0)}</span>
+                    {/* 读取操作 */}
+                    <div>
+                      <div className="flex justify-between text-sm mb-1">
+                        <span>读取操作</span>
+                        <span>{formatNumber(account.usage.classBOps || 0)}</span>
+                      </div>
                     </div>
-                  </div>
 
-                  {/* 状态信息 */}
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    <span>
-                      使用率: {account.usagePercent.toFixed(1)}%
-                    </span>
-                    {account.usage.lastSyncAt && (
+                    {/* 状态信息 */}
+                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
                       <span>
-                        上次同步:{" "}
-                        {new Date(account.usage.lastSyncAt).toLocaleString(
-                          "zh-CN"
-                        )}
+                        使用率: {account.usagePercent.toFixed(1)}%
                       </span>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                      {account.usage.lastSyncAt && (
+                        <span>
+                          上次同步:{" "}
+                          {new Date(account.usage.lastSyncAt).toLocaleString(
+                            "zh-CN"
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+              totalItems={accounts.length}
+              pageSize={PAGE_SIZE}
+            />
+          </>
         )}
       </div>
     </div>

@@ -119,6 +119,31 @@ export interface Account {
   updatedAt: string;
 }
 
+/**
+ * 账户完整信息（包含敏感字段，用于创建/编辑响应）
+ */
+export interface AccountFull {
+  id: string;
+  name: string;
+  isActive: boolean;
+  description: string;
+  accountId: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucketName: string;
+  endpoint: string;
+  publicDomain: string;
+  apiToken: string;
+  quota: Quota;
+  usage: Usage;
+  usagePercent: number;
+  isOverQuota: boolean;
+  isOverOps: boolean;
+  isAvailable: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AccountRequest {
   name: string;
   isActive: boolean;
@@ -133,15 +158,15 @@ export interface AccountRequest {
   quota: Quota;
 }
 
-export async function getAccounts(): Promise<Account[]> {
+export async function getAccounts(): Promise<AccountFull[]> {
   return request("/accounts");
 }
 
-export async function getAccount(id: string): Promise<Account> {
+export async function getAccount(id: string): Promise<AccountFull> {
   return request(`/accounts/${id}`);
 }
 
-export async function createAccount(data: AccountRequest): Promise<Account> {
+export async function createAccount(data: AccountRequest): Promise<AccountFull> {
   return request("/accounts", {
     method: "POST",
     body: JSON.stringify(data),
@@ -151,7 +176,7 @@ export async function createAccount(data: AccountRequest): Promise<Account> {
 export async function updateAccount(
   id: string,
   data: AccountRequest
-): Promise<Account> {
+): Promise<AccountFull> {
   return request(`/accounts/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),
@@ -297,4 +322,104 @@ export async function updateSettings(data: Settings): Promise<Settings> {
     method: "PUT",
     body: JSON.stringify(data),
   });
+}
+
+// ==================== S3 凭证 API ====================
+
+export interface S3Credential {
+  id: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  accountId: string;
+  description: string;
+  permissions: string[];
+  isActive: boolean;
+  createdAt: string;
+  lastUsedAt: string;
+}
+
+export interface S3CredentialRequest {
+  accountId: string;
+  description: string;
+  permissions: string[];
+}
+
+export interface S3CredentialUpdateRequest {
+  description: string;
+  permissions: string[];
+  isActive: boolean;
+}
+
+export async function getS3Credentials(): Promise<S3Credential[]> {
+  const result = await request<{ credentials: S3Credential[] }>("/s3-credentials");
+  return result.credentials;
+}
+
+export async function createS3Credential(data: S3CredentialRequest): Promise<{ credential: S3Credential }> {
+  return request("/s3-credentials", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateS3Credential(id: string, data: S3CredentialUpdateRequest): Promise<void> {
+  return request(`/s3-credentials/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteS3Credential(id: string): Promise<void> {
+  return request(`/s3-credentials/${id}`, { method: "DELETE" });
+}
+
+// ==================== WebDAV 凭证 API ====================
+
+export interface WebDAVCredential {
+  id: string;
+  username: string;
+  password: string;
+  accountId: string;
+  description: string;
+  permissions: string[];
+  isActive: boolean;
+  createdAt: string;
+  lastUsedAt: string;
+}
+
+export interface WebDAVCredentialRequest {
+  accountId: string;
+  description: string;
+  permissions: string[];
+  username?: string;
+  password?: string;
+}
+
+export interface WebDAVCredentialUpdateRequest {
+  description: string;
+  permissions: string[];
+  isActive: boolean;
+}
+
+export async function getWebDAVCredentials(): Promise<WebDAVCredential[]> {
+  const result = await request<{ credentials: WebDAVCredential[] }>("/webdav-credentials");
+  return result.credentials;
+}
+
+export async function createWebDAVCredential(data: WebDAVCredentialRequest): Promise<{ credential: WebDAVCredential }> {
+  return request("/webdav-credentials", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateWebDAVCredential(id: string, data: WebDAVCredentialUpdateRequest): Promise<void> {
+  return request(`/webdav-credentials/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteWebDAVCredential(id: string): Promise<void> {
+  return request(`/webdav-credentials/${id}`, { method: "DELETE" });
 }

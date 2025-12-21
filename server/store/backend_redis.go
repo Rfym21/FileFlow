@@ -9,9 +9,11 @@ import (
 )
 
 const (
-	redisAccountsKey = "fileflow:accounts"
-	redisTokensKey   = "fileflow:tokens"
-	redisSettingsKey = "fileflow:settings"
+	redisAccountsKey          = "fileflow:accounts"
+	redisTokensKey            = "fileflow:tokens"
+	redisSettingsKey          = "fileflow:settings"
+	redisS3CredentialsKey     = "fileflow:s3_credentials"
+	redisWebDAVCredentialsKey = "fileflow:webdav_credentials"
 )
 
 // RedisBackend Redis 数据库后端
@@ -49,8 +51,10 @@ func (b *RedisBackend) Init() error {
 // Load 从 Redis 加载全部数据
 func (b *RedisBackend) Load() (*Data, error) {
 	data := &Data{
-		Accounts: []Account{},
-		Tokens:   []Token{},
+		Accounts:          []Account{},
+		Tokens:            []Token{},
+		S3Credentials:     []S3Credential{},
+		WebDAVCredentials: []WebDAVCredential{},
 	}
 
 	// 加载 accounts
@@ -98,6 +102,34 @@ func (b *RedisBackend) Load() (*Data, error) {
 		data.Settings.SyncInterval = 5
 	}
 
+	// 加载 s3_credentials
+	s3CredsMap, err := b.client.HGetAll(b.ctx, redisS3CredentialsKey).Result()
+	if err != nil && err != redis.Nil {
+		return nil, fmt.Errorf("加载 s3_credentials 失败: %w", err)
+	}
+
+	for _, jsonStr := range s3CredsMap {
+		var cred S3Credential
+		if err := json.Unmarshal([]byte(jsonStr), &cred); err != nil {
+			continue
+		}
+		data.S3Credentials = append(data.S3Credentials, cred)
+	}
+
+	// 加载 webdav_credentials
+	webdavCredsMap, err := b.client.HGetAll(b.ctx, redisWebDAVCredentialsKey).Result()
+	if err != nil && err != redis.Nil {
+		return nil, fmt.Errorf("加载 webdav_credentials 失败: %w", err)
+	}
+
+	for _, jsonStr := range webdavCredsMap {
+		var cred WebDAVCredential
+		if err := json.Unmarshal([]byte(jsonStr), &cred); err != nil {
+			continue
+		}
+		data.WebDAVCredentials = append(data.WebDAVCredentials, cred)
+	}
+
 	return data, nil
 }
 
@@ -108,6 +140,8 @@ func (b *RedisBackend) Save(data *Data) error {
 	// 删除旧数据
 	pipe.Del(b.ctx, redisAccountsKey)
 	pipe.Del(b.ctx, redisTokensKey)
+	pipe.Del(b.ctx, redisS3CredentialsKey)
+	pipe.Del(b.ctx, redisWebDAVCredentialsKey)
 
 	// 保存 accounts
 	if len(data.Accounts) > 0 {
@@ -143,6 +177,32 @@ func (b *RedisBackend) Save(data *Data) error {
 	}
 	pipe.HSet(b.ctx, redisSettingsKey, "endpoint_proxy", endpointProxyVal)
 	pipe.HSet(b.ctx, redisSettingsKey, "endpoint_proxy_url", data.Settings.EndpointProxyURL)
+
+	// 保存 s3_credentials
+	if len(data.S3Credentials) > 0 {
+		s3CredsMap := make(map[string]string)
+		for _, cred := range data.S3Credentials {
+			jsonBytes, err := json.Marshal(cred)
+			if err != nil {
+				return fmt.Errorf("序列化 s3_credential 失败: %w", err)
+			}
+			s3CredsMap[cred.ID] = string(jsonBytes)
+		}
+		pipe.HSet(b.ctx, redisS3CredentialsKey, s3CredsMap)
+	}
+
+	// 保存 webdav_credentials
+	if len(data.WebDAVCredentials) > 0 {
+		webdavCredsMap := make(map[string]string)
+		for _, cred := range data.WebDAVCredentials {
+			jsonBytes, err := json.Marshal(cred)
+			if err != nil {
+				return fmt.Errorf("序列化 webdav_credential 失败: %w", err)
+			}
+			webdavCredsMap[cred.ID] = string(jsonBytes)
+		}
+		pipe.HSet(b.ctx, redisWebDAVCredentialsKey, webdavCredsMap)
+	}
 
 	_, err := pipe.Exec(b.ctx)
 	if err != nil {

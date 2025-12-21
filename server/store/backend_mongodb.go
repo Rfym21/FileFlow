@@ -11,10 +11,12 @@ import (
 )
 
 const (
-	mongoDBName       = "fileflow"
-	mongoAccountsColl = "accounts"
-	mongoTokensColl   = "tokens"
-	mongoSettingsColl = "settings"
+	mongoDBName                = "fileflow"
+	mongoAccountsColl          = "accounts"
+	mongoTokensColl            = "tokens"
+	mongoSettingsColl          = "settings"
+	mongoS3CredentialsColl     = "s3_credentials"
+	mongoWebDAVCredentialsColl = "webdav_credentials"
 )
 
 // MongoBackend MongoDB 数据库后端
@@ -61,6 +63,32 @@ type MongoToken struct {
 	CreatedAt   string   `bson:"createdAt"`
 }
 
+// MongoS3Credential MongoDB 中的 S3Credential 文档结构
+type MongoS3Credential struct {
+	ID              string   `bson:"_id"`
+	AccessKeyID     string   `bson:"accessKeyId"`
+	SecretAccessKey string   `bson:"secretAccessKey"`
+	AccountID       string   `bson:"accountId"`
+	Description     string   `bson:"description"`
+	Permissions     []string `bson:"permissions"`
+	IsActive        bool     `bson:"isActive"`
+	CreatedAt       string   `bson:"createdAt"`
+	LastUsedAt      string   `bson:"lastUsedAt"`
+}
+
+// MongoWebDAVCredential MongoDB 中的 WebDAVCredential 文档结构
+type MongoWebDAVCredential struct {
+	ID          string   `bson:"_id"`
+	Username    string   `bson:"username"`
+	Password    string   `bson:"password"`
+	AccountID   string   `bson:"accountId"`
+	Description string   `bson:"description"`
+	Permissions []string `bson:"permissions"`
+	IsActive    bool     `bson:"isActive"`
+	CreatedAt   string   `bson:"createdAt"`
+	LastUsedAt  string   `bson:"lastUsedAt"`
+}
+
 // NewMongoBackend 创建 MongoDB 后端
 func NewMongoBackend(connStr string) (*MongoBackend, error) {
 	return &MongoBackend{
@@ -104,14 +132,36 @@ func (b *MongoBackend) createIndexes() error {
 		Keys:    bson.D{{Key: "token", Value: 1}},
 		Options: options.Index().SetUnique(true),
 	})
+	if err != nil {
+		return err
+	}
+
+	// s3_credentials 集合的 accessKeyId 字段唯一索引
+	s3CredsColl := b.db.Collection(mongoS3CredentialsColl)
+	_, err = s3CredsColl.Indexes().CreateOne(b.ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "accessKeyId", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		return err
+	}
+
+	// webdav_credentials 集合的 username 字段唯一索引
+	webdavCredsColl := b.db.Collection(mongoWebDAVCredentialsColl)
+	_, err = webdavCredsColl.Indexes().CreateOne(b.ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "username", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	})
 	return err
 }
 
 // Load 从 MongoDB 加载全部数据
 func (b *MongoBackend) Load() (*Data, error) {
 	data := &Data{
-		Accounts: []Account{},
-		Tokens:   []Token{},
+		Accounts:          []Account{},
+		Tokens:            []Token{},
+		S3Credentials:     []S3Credential{},
+		WebDAVCredentials: []WebDAVCredential{},
 	}
 
 	// 加载 accounts
@@ -211,6 +261,66 @@ func (b *MongoBackend) Load() (*Data, error) {
 	err = settingsColl.FindOne(b.ctx, bson.M{"_id": "endpoint_proxy_url"}).Decode(&endpointProxyURLDoc)
 	if err == nil {
 		data.Settings.EndpointProxyURL = endpointProxyURLDoc.Value
+	}
+
+	// 加载 s3_credentials
+	s3CredsColl := b.db.Collection(mongoS3CredentialsColl)
+	cursor, err = s3CredsColl.Find(b.ctx, bson.M{})
+	if err != nil {
+		return nil, fmt.Errorf("查询 s3_credentials 失败: %w", err)
+	}
+	defer cursor.Close(b.ctx)
+
+	for cursor.Next(b.ctx) {
+		var doc MongoS3Credential
+		if err := cursor.Decode(&doc); err != nil {
+			continue
+		}
+		cred := S3Credential{
+			ID:              doc.ID,
+			AccessKeyID:     doc.AccessKeyID,
+			SecretAccessKey: doc.SecretAccessKey,
+			AccountID:       doc.AccountID,
+			Description:     doc.Description,
+			Permissions:     doc.Permissions,
+			IsActive:        doc.IsActive,
+			CreatedAt:       doc.CreatedAt,
+			LastUsedAt:      doc.LastUsedAt,
+		}
+		if cred.Permissions == nil {
+			cred.Permissions = []string{}
+		}
+		data.S3Credentials = append(data.S3Credentials, cred)
+	}
+
+	// 加载 webdav_credentials
+	webdavCredsColl := b.db.Collection(mongoWebDAVCredentialsColl)
+	cursor, err = webdavCredsColl.Find(b.ctx, bson.M{})
+	if err != nil {
+		return nil, fmt.Errorf("查询 webdav_credentials 失败: %w", err)
+	}
+	defer cursor.Close(b.ctx)
+
+	for cursor.Next(b.ctx) {
+		var doc MongoWebDAVCredential
+		if err := cursor.Decode(&doc); err != nil {
+			continue
+		}
+		cred := WebDAVCredential{
+			ID:          doc.ID,
+			Username:    doc.Username,
+			Password:    doc.Password,
+			AccountID:   doc.AccountID,
+			Description: doc.Description,
+			Permissions: doc.Permissions,
+			IsActive:    doc.IsActive,
+			CreatedAt:   doc.CreatedAt,
+			LastUsedAt:  doc.LastUsedAt,
+		}
+		if cred.Permissions == nil {
+			cred.Permissions = []string{}
+		}
+		data.WebDAVCredentials = append(data.WebDAVCredentials, cred)
 	}
 
 	return data, nil
@@ -323,6 +433,58 @@ func (b *MongoBackend) Save(data *Data) error {
 			return nil, fmt.Errorf("保存 settings 失败: %w", err)
 		}
 
+		// 清空并重新插入 s3_credentials
+		s3CredsColl := b.db.Collection(mongoS3CredentialsColl)
+		if _, err := s3CredsColl.DeleteMany(sessCtx, bson.M{}); err != nil {
+			return nil, fmt.Errorf("清空 s3_credentials 失败: %w", err)
+		}
+
+		if len(data.S3Credentials) > 0 {
+			docs := make([]interface{}, len(data.S3Credentials))
+			for i, cred := range data.S3Credentials {
+				docs[i] = MongoS3Credential{
+					ID:              cred.ID,
+					AccessKeyID:     cred.AccessKeyID,
+					SecretAccessKey: cred.SecretAccessKey,
+					AccountID:       cred.AccountID,
+					Description:     cred.Description,
+					Permissions:     cred.Permissions,
+					IsActive:        cred.IsActive,
+					CreatedAt:       cred.CreatedAt,
+					LastUsedAt:      cred.LastUsedAt,
+				}
+			}
+			if _, err := s3CredsColl.InsertMany(sessCtx, docs); err != nil {
+				return nil, fmt.Errorf("插入 s3_credentials 失败: %w", err)
+			}
+		}
+
+		// 清空并重新插入 webdav_credentials
+		webdavCredsColl := b.db.Collection(mongoWebDAVCredentialsColl)
+		if _, err := webdavCredsColl.DeleteMany(sessCtx, bson.M{}); err != nil {
+			return nil, fmt.Errorf("清空 webdav_credentials 失败: %w", err)
+		}
+
+		if len(data.WebDAVCredentials) > 0 {
+			docs := make([]interface{}, len(data.WebDAVCredentials))
+			for i, cred := range data.WebDAVCredentials {
+				docs[i] = MongoWebDAVCredential{
+					ID:          cred.ID,
+					Username:    cred.Username,
+					Password:    cred.Password,
+					AccountID:   cred.AccountID,
+					Description: cred.Description,
+					Permissions: cred.Permissions,
+					IsActive:    cred.IsActive,
+					CreatedAt:   cred.CreatedAt,
+					LastUsedAt:  cred.LastUsedAt,
+				}
+			}
+			if _, err := webdavCredsColl.InsertMany(sessCtx, docs); err != nil {
+				return nil, fmt.Errorf("插入 webdav_credentials 失败: %w", err)
+			}
+		}
+
 		return nil, nil
 	})
 
@@ -425,6 +587,58 @@ func (b *MongoBackend) saveWithoutTransaction(data *Data) error {
 		options.Update().SetUpsert(true))
 	if err != nil {
 		return fmt.Errorf("保存 settings 失败: %w", err)
+	}
+
+	// 清空并重新插入 s3_credentials
+	s3CredsColl := b.db.Collection(mongoS3CredentialsColl)
+	if _, err := s3CredsColl.DeleteMany(b.ctx, bson.M{}); err != nil {
+		return fmt.Errorf("清空 s3_credentials 失败: %w", err)
+	}
+
+	if len(data.S3Credentials) > 0 {
+		docs := make([]interface{}, len(data.S3Credentials))
+		for i, cred := range data.S3Credentials {
+			docs[i] = MongoS3Credential{
+				ID:              cred.ID,
+				AccessKeyID:     cred.AccessKeyID,
+				SecretAccessKey: cred.SecretAccessKey,
+				AccountID:       cred.AccountID,
+				Description:     cred.Description,
+				Permissions:     cred.Permissions,
+				IsActive:        cred.IsActive,
+				CreatedAt:       cred.CreatedAt,
+				LastUsedAt:      cred.LastUsedAt,
+			}
+		}
+		if _, err := s3CredsColl.InsertMany(b.ctx, docs); err != nil {
+			return fmt.Errorf("插入 s3_credentials 失败: %w", err)
+		}
+	}
+
+	// 清空并重新插入 webdav_credentials
+	webdavCredsColl := b.db.Collection(mongoWebDAVCredentialsColl)
+	if _, err := webdavCredsColl.DeleteMany(b.ctx, bson.M{}); err != nil {
+		return fmt.Errorf("清空 webdav_credentials 失败: %w", err)
+	}
+
+	if len(data.WebDAVCredentials) > 0 {
+		docs := make([]interface{}, len(data.WebDAVCredentials))
+		for i, cred := range data.WebDAVCredentials {
+			docs[i] = MongoWebDAVCredential{
+				ID:          cred.ID,
+				Username:    cred.Username,
+				Password:    cred.Password,
+				AccountID:   cred.AccountID,
+				Description: cred.Description,
+				Permissions: cred.Permissions,
+				IsActive:    cred.IsActive,
+				CreatedAt:   cred.CreatedAt,
+				LastUsedAt:  cred.LastUsedAt,
+			}
+		}
+		if _, err := webdavCredsColl.InsertMany(b.ctx, docs); err != nil {
+			return fmt.Errorf("插入 webdav_credentials 失败: %w", err)
+		}
 	}
 
 	return nil

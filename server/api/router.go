@@ -47,6 +47,18 @@ func SetupRouter(r *gin.Engine) {
 		admin.POST("/tokens", CreateToken)
 		admin.DELETE("/tokens/:id", DeleteToken)
 
+		// S3 凭证管理
+		admin.GET("/s3-credentials", GetS3Credentials)
+		admin.POST("/s3-credentials", CreateS3Credential)
+		admin.PUT("/s3-credentials/:id", UpdateS3Credential)
+		admin.DELETE("/s3-credentials/:id", DeleteS3Credential)
+
+		// WebDAV 凭证管理
+		admin.GET("/webdav-credentials", GetWebDAVCredentials)
+		admin.POST("/webdav-credentials", CreateWebDAVCredential)
+		admin.PUT("/webdav-credentials/:id", UpdateWebDAVCredential)
+		admin.DELETE("/webdav-credentials/:id", DeleteWebDAVCredential)
+
 		// 系统设置
 		admin.GET("/settings", GetSettings)
 		admin.PUT("/settings", UpdateSettings)

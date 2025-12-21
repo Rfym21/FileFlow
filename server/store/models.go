@@ -44,6 +44,52 @@ type Token struct {
 	CreatedAt   string   `json:"createdAt"`
 }
 
+// S3Credential S3 兼容 API 访问凭证
+type S3Credential struct {
+	ID              string   `json:"id"`
+	AccessKeyID     string   `json:"accessKeyId"`     // 20 字符，如 FFLWXXXXXXXXXXXX
+	SecretAccessKey string   `json:"secretAccessKey"` // 40 字符
+	AccountID       string   `json:"accountId"`       // 关联的账户 ID
+	Description     string   `json:"description"`
+	Permissions     []string `json:"permissions"` // read, write, delete
+	IsActive        bool     `json:"isActive"`
+	CreatedAt       string   `json:"createdAt"`
+	LastUsedAt      string   `json:"lastUsedAt"`
+}
+
+// HasPermission 检查 S3 凭证是否有指定权限
+func (c *S3Credential) HasPermission(perm string) bool {
+	for _, p := range c.Permissions {
+		if p == perm {
+			return true
+		}
+	}
+	return false
+}
+
+// WebDAVCredential WebDAV 访问凭证
+type WebDAVCredential struct {
+	ID          string   `json:"id"`
+	Username    string   `json:"username"`    // WebDAV 用户名
+	Password    string   `json:"password"`    // WebDAV 密码
+	AccountID   string   `json:"accountId"`   // 关联的账户 ID
+	Description string   `json:"description"`
+	Permissions []string `json:"permissions"` // read, write, delete
+	IsActive    bool     `json:"isActive"`
+	CreatedAt   string   `json:"createdAt"`
+	LastUsedAt  string   `json:"lastUsedAt"`
+}
+
+// HasPermission 检查 WebDAV 凭证是否有指定权限
+func (c *WebDAVCredential) HasPermission(perm string) bool {
+	for _, p := range c.Permissions {
+		if p == perm {
+			return true
+		}
+	}
+	return false
+}
+
 // Settings 系统设置
 type Settings struct {
 	SyncInterval     int    `json:"syncInterval"`     // 同步间隔（分钟），默认 5
@@ -53,9 +99,11 @@ type Settings struct {
 
 // Data 存储的完整数据结构
 type Data struct {
-	Accounts []Account `json:"accounts"`
-	Tokens   []Token   `json:"tokens"`
-	Settings Settings  `json:"settings"`
+	Accounts          []Account          `json:"accounts"`
+	Tokens            []Token            `json:"tokens"`
+	S3Credentials     []S3Credential     `json:"s3Credentials"`
+	WebDAVCredentials []WebDAVCredential `json:"webdavCredentials"`
+	Settings          Settings           `json:"settings"`
 }
 
 // HasPermission 检查 Token 是否有指定权限

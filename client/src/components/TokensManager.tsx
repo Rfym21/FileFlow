@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Pagination } from "@/components/ui/pagination";
 import {
   getTokens,
   createToken,
@@ -11,7 +12,10 @@ import {
   type TokenRequest,
 } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
-import { Plus, Trash2, RefreshCw, X, Copy, Check } from "lucide-react";
+import { Plus, Trash2, RefreshCw, Copy, Check } from "lucide-react";
+import { toast } from "sonner";
+
+const PAGE_SIZE = 5;
 
 const PERMISSIONS = [
   { value: "read", label: "读取", desc: "列表、下载、获取链接" },
@@ -28,8 +32,22 @@ export default function TokensManager() {
     permissions: ["read"],
   });
   const [submitting, setSubmitting] = useState(false);
-  const [newToken, setNewToken] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // 分页计算
+  const totalPages = Math.ceil(tokens.length / PAGE_SIZE);
+  const paginatedTokens = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return tokens.slice(start, start + PAGE_SIZE);
+  }, [tokens, currentPage]);
+
+  // 当数据变化时重置页码
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [tokens.length, totalPages, currentPage]);
 
   const loadTokens = async () => {
     setLoading(true);
@@ -37,7 +55,7 @@ export default function TokensManager() {
       const data = await getTokens();
       setTokens(data || []);
     } catch (err) {
-      console.error("加载 Token 失败:", err);
+      console.error("加载令牌失败:", err);
     } finally {
       setLoading(false);
     }
@@ -45,7 +63,7 @@ export default function TokensManager() {
 
   const handleSubmit = async () => {
     if (!form.name.trim()) {
-      alert("请输入 Token 名称");
+      alert("请输入令牌名称");
       return;
     }
     if (form.permissions.length === 0) {
@@ -55,10 +73,11 @@ export default function TokensManager() {
 
     setSubmitting(true);
     try {
-      const result = await createToken(form);
-      setNewToken(result.token || null);
+      await createToken(form);
       await loadTokens();
       setForm({ name: "", permissions: ["read"] });
+      setShowForm(false);
+      toast.success("令牌创建成功");
     } catch (err) {
       alert(err instanceof Error ? err.message : "创建失败");
     } finally {
@@ -67,22 +86,22 @@ export default function TokensManager() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("确定要删除此 Token 吗？删除后使用此 Token 的应用将无法访问。"))
+    if (!confirm("确定要删除此令牌吗？删除后使用此令牌的应用将无法访问。"))
       return;
     try {
       await deleteToken(id);
       await loadTokens();
+      toast.success("令牌已删除");
     } catch (err) {
       alert(err instanceof Error ? err.message : "删除失败");
     }
   };
 
-  const handleCopy = async () => {
-    if (newToken) {
-      await navigator.clipboard.writeText(newToken);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+  const handleCopy = async (tokenValue: string, tokenId: string) => {
+    await navigator.clipboard.writeText(tokenValue);
+    setCopiedId(tokenId);
+    toast.success("已复制到剪贴板");
+    setTimeout(() => setCopiedId(null), 2000);
   };
 
   const togglePermission = (perm: string) => {
@@ -113,45 +132,14 @@ export default function TokensManager() {
 
   return (
     <div className="space-y-6">
-      {/* 新创建的 Token 显示 */}
-      {newToken && (
-        <Card className="border-foreground/20 bg-secondary">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">Token 创建成功</p>
-                <p className="text-sm text-muted-foreground">
-                  请立即复制，此 Token 仅显示一次
-                </p>
-              </div>
-              <Button variant="ghost" size="icon" onClick={() => setNewToken(null)}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="mt-2 flex items-center gap-2">
-              <code className="flex-1 p-2 bg-background rounded border text-sm font-mono break-all">
-                {newToken}
-              </code>
-              <Button variant="outline" size="icon" onClick={handleCopy}>
-                {copied ? (
-                  <Check className="h-4 w-4" />
-                ) : (
-                  <Copy className="h-4 w-4" />
-                )}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* 工具栏 */}
       <div className="flex justify-between">
         <div className="text-sm text-muted-foreground">
-          共 {tokens.length} 个 Token
+          共 {tokens.length} 个令牌
         </div>
         <Button onClick={() => setShowForm(!showForm)}>
           <Plus className="mr-2 h-4 w-4" />
-          创建 Token
+          创建令牌
         </Button>
       </div>
 
@@ -159,11 +147,11 @@ export default function TokensManager() {
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle>创建 API Token</CardTitle>
+            <CardTitle>创建 API 令牌</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Token 名称 *</Label>
+              <Label>令牌名称 *</Label>
               <Input
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -207,48 +195,77 @@ export default function TokensManager() {
         </Card>
       )}
 
-      {/* Token 列表 */}
+      {/* 令牌列表 */}
       <div className="space-y-4">
         {tokens.length === 0 ? (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-              <p>暂无 API Token</p>
-              <p className="text-sm">创建 Token 以便外部应用访问</p>
+              <p>暂无 API 令牌</p>
+              <p className="text-sm">创建令牌以便外部应用访问</p>
             </CardContent>
           </Card>
         ) : (
-          tokens.map((token) => (
-            <Card key={token.id}>
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1">
-                    <div className="font-medium">{token.name}</div>
-                    <div className="flex gap-1">
-                      {token.permissions.map((p) => (
-                        <span
-                          key={p}
-                          className="text-xs bg-secondary px-2 py-0.5 rounded"
-                        >
-                          {PERMISSIONS.find((x) => x.value === p)?.label || p}
-                        </span>
-                      ))}
+          <>
+            {paginatedTokens.map((token) => (
+              <Card key={token.id}>
+                <CardContent className="p-4 space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div className="space-y-1">
+                      <div className="font-medium">{token.name}</div>
+                      <div className="flex gap-1">
+                        {token.permissions.map((p) => (
+                          <span
+                            key={p}
+                            className="text-xs bg-secondary px-2 py-0.5 rounded"
+                          >
+                            {PERMISSIONS.find((x) => x.value === p)?.label || p}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        创建于 {formatDate(token.createdAt)}
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      创建于 {formatDate(token.createdAt)}
-                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-destructive"
+                      onClick={() => handleDelete(token.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-destructive"
-                    onClick={() => handleDelete(token.id)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))
+                  {/* 令牌值 */}
+                  {token.token && (
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 p-2 bg-secondary rounded text-xs font-mono break-all select-all">
+                        {token.token}
+                      </code>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="shrink-0"
+                        onClick={() => handleCopy(token.token!, token.id)}
+                      >
+                        {copiedId === token.id ? (
+                          <Check className="h-4 w-4" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+              totalItems={tokens.length}
+              pageSize={PAGE_SIZE}
+            />
+          </>
         )}
       </div>
     </div>

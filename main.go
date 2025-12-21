@@ -11,8 +11,10 @@ import (
 
 	"fileflow/server/api"
 	"fileflow/server/config"
+	"fileflow/server/s3api"
 	"fileflow/server/service"
 	"fileflow/server/store"
+	"fileflow/server/webdav"
 
 	"github.com/gin-gonic/gin"
 )
@@ -47,6 +49,23 @@ func main() {
 	// 配置 API 路由
 	api.SetupRouter(r)
 
+	// 配置 S3 兼容 API 路由
+	s3api.SetupS3Router(r)
+	log.Println("S3 兼容 API 已启用，端点: /s3")
+
+	// 配置 WebDAV 路由
+	// 注意：r.Any() 只处理标准 HTTP 方法，不包含 WebDAV 的自定义方法
+	// 必须使用 r.Handle() 显式注册所有 WebDAV 方法
+	webdavHandler := gin.WrapH(webdav.NewRouter())
+	webdavMethods := []string{
+		"GET", "HEAD", "PUT", "DELETE", "OPTIONS",
+		"PROPFIND", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK",
+	}
+	for _, method := range webdavMethods {
+		r.Handle(method, "/webdav/*path", webdavHandler)
+	}
+	log.Println("WebDAV 接口已启用，端点: /webdav")
+
 	// 配置静态文件服务
 	setupStaticFiles(r)
 
@@ -69,6 +88,16 @@ func main() {
 // corsMiddleware CORS 中间件
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// WebDAV 和 S3 路径跳过 CORS 处理（它们有自己的 OPTIONS 处理）
+		if len(c.Request.URL.Path) >= 7 && c.Request.URL.Path[:7] == "/webdav" {
+			c.Next()
+			return
+		}
+		if len(c.Request.URL.Path) >= 3 && c.Request.URL.Path[:3] == "/s3" {
+			c.Next()
+			return
+		}
+
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Token")

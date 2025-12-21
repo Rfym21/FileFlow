@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Pagination } from "@/components/ui/pagination";
 import {
   Tooltip,
   TooltipContent,
@@ -29,10 +30,13 @@ import {
   clearBucket,
   type Account,
   type AccountRequest,
+  type AccountFull,
 } from "@/lib/api";
 import { formatBytes, formatNumber } from "@/lib/utils";
-import { Plus, Pencil, Trash2, RefreshCw, X, Eraser } from "lucide-react";
+import { Plus, Pencil, Trash2, RefreshCw, X, Eraser, Copy, Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+
+const PAGE_SIZE = 5;
 
 const defaultAccountForm: AccountRequest = {
   name: "",
@@ -52,7 +56,7 @@ const defaultAccountForm: AccountRequest = {
 };
 
 export default function AccountsManager() {
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accounts, setAccounts] = useState<AccountFull[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -60,6 +64,22 @@ export default function AccountsManager() {
   const [submitting, setSubmitting] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [clearingId, setClearingId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // 分页计算
+  const totalPages = Math.ceil(accounts.length / PAGE_SIZE);
+  const paginatedAccounts = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return accounts.slice(start, start + PAGE_SIZE);
+  }, [accounts, currentPage]);
+
+  // 当账户数据变化时重置页码
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [accounts.length, totalPages, currentPage]);
 
   const loadAccounts = async () => {
     setLoading(true);
@@ -76,13 +96,30 @@ export default function AccountsManager() {
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
+      let result: AccountFull;
       if (editingId) {
-        await updateAccount(editingId, form);
+        result = await updateAccount(editingId, form);
       } else {
-        await createAccount(form);
+        result = await createAccount(form);
       }
+
+      // 更新表单，填充返回的完整字段（包括敏感字段）
+      setForm({
+        name: result.name,
+        isActive: result.isActive,
+        description: result.description,
+        accountId: result.accountId,
+        accessKeyId: result.accessKeyId,
+        secretAccessKey: result.secretAccessKey,
+        bucketName: result.bucketName,
+        endpoint: result.endpoint,
+        publicDomain: result.publicDomain,
+        apiToken: result.apiToken,
+        quota: result.quota,
+      });
+
       await loadAccounts();
-      handleCancel();
+      alert(editingId ? "账户更新成功！所有字段已刷新。" : "账户创建成功！请妥善保管显示的凭证信息。");
     } catch (err) {
       alert(err instanceof Error ? err.message : "操作失败");
     } finally {
@@ -90,7 +127,7 @@ export default function AccountsManager() {
     }
   };
 
-  const handleToggleActive = async (account: Account) => {
+  const handleToggleActive = async (account: AccountFull) => {
     setTogglingId(account.id);
     try {
       await updateAccount(account.id, {
@@ -98,12 +135,12 @@ export default function AccountsManager() {
         isActive: !account.isActive,
         description: account.description,
         accountId: account.accountId,
-        accessKeyId: "",
-        secretAccessKey: "",
+        accessKeyId: account.accessKeyId,
+        secretAccessKey: account.secretAccessKey,
         bucketName: account.bucketName,
         endpoint: account.endpoint,
         publicDomain: account.publicDomain,
-        apiToken: "",
+        apiToken: account.apiToken,
         quota: account.quota,
       });
       await loadAccounts();
@@ -114,19 +151,19 @@ export default function AccountsManager() {
     }
   };
 
-  const handleEdit = (account: Account) => {
+  const handleEdit = (account: AccountFull) => {
     setEditingId(account.id);
     setForm({
       name: account.name,
       isActive: account.isActive,
       description: account.description,
       accountId: account.accountId,
-      accessKeyId: "",
-      secretAccessKey: "",
+      accessKeyId: account.accessKeyId,
+      secretAccessKey: account.secretAccessKey,
       bucketName: account.bucketName,
       endpoint: account.endpoint,
       publicDomain: account.publicDomain,
-      apiToken: "",
+      apiToken: account.apiToken,
       quota: account.quota,
     });
     setShowForm(true);
@@ -158,6 +195,12 @@ export default function AccountsManager() {
     setShowForm(false);
     setEditingId(null);
     setForm(defaultAccountForm);
+  };
+
+  const handleCopyId = (id: string) => {
+    navigator.clipboard.writeText(id);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
   };
 
   useEffect(() => {
@@ -309,7 +352,7 @@ export default function AccountsManager() {
       )}
 
       <div className="space-y-4">
-        {accounts.map((account) => (
+        {paginatedAccounts.map((account) => (
           <Card key={account.id} className={!account.isActive ? "opacity-50 border-muted" : ""}>
             <CardContent className="p-4 space-y-3">
               {/* 第一行：名称 + 操作按钮 */}
@@ -400,11 +443,27 @@ export default function AccountsManager() {
                   </Tooltip>
                 </div>
               </div>
-              {/* 第二行：Bucket 和 Endpoint */}
+              {/* 第二行：ID */}
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="font-mono">ID: {account.id}</span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-4 w-4 shrink-0"
+                  onClick={() => handleCopyId(account.id)}
+                >
+                  {copiedId === account.id ? (
+                    <Check className="h-3 w-3 text-green-500" />
+                  ) : (
+                    <Copy className="h-3 w-3" />
+                  )}
+                </Button>
+              </div>
+              {/* 第三行：Bucket + Endpoint */}
               <div className="text-sm text-muted-foreground truncate">
                 {account.bucketName} · {account.endpoint}
               </div>
-              {/* 第三行：用量信息 */}
+              {/* 第四行：用量信息 */}
               <div className="text-sm text-muted-foreground">
                 容量: {formatBytes(account.usage.sizeBytes)} /{" "}
                 {formatBytes(account.quota.maxSizeBytes)} | 写入:{" "}
@@ -414,6 +473,13 @@ export default function AccountsManager() {
             </CardContent>
           </Card>
         ))}
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          totalItems={accounts.length}
+          pageSize={PAGE_SIZE}
+        />
       </div>
       </div>
     </TooltipProvider>
