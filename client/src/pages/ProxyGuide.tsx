@@ -391,10 +391,10 @@ export default function ProxyGuide() {
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="worker" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="worker">Cloudflare Workers</TabsTrigger>
-              <TabsTrigger value="deno">Deno / Deno Deploy</TabsTrigger>
-              <TabsTrigger value="go">Go 独立部署</TabsTrigger>
+            <TabsList className="flex flex-wrap h-auto gap-1 w-full">
+              <TabsTrigger value="worker" className="flex-1 min-w-fit">Cloudflare Workers</TabsTrigger>
+              <TabsTrigger value="deno" className="flex-1 min-w-fit">Deno / Deno Deploy</TabsTrigger>
+              <TabsTrigger value="go" className="flex-1 min-w-fit">Go 独立部署</TabsTrigger>
             </TabsList>
 
             {/* Cloudflare Workers */}
