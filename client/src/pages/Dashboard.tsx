@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
   Card,
   CardContent,
@@ -42,8 +43,10 @@ export default function Dashboard() {
     try {
       await syncAccounts();
       setTimeout(loadAccounts, 1000);
+      toast.success("同步成功");
     } catch (err) {
       console.error("同步失败:", err);
+      toast.error(err instanceof Error ? err.message : "同步失败");
     } finally {
       setSyncing(false);
     }
@@ -54,8 +57,10 @@ export default function Dashboard() {
     try {
       await syncAccounts(accountId);
       await loadAccounts();
+      toast.success("同步成功");
     } catch (err) {
       console.error("同步失败:", err);
+      toast.error(err instanceof Error ? err.message : "同步失败");
     } finally {
       setSyncingAccountId(null);
     }

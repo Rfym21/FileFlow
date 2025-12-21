@@ -311,26 +311,16 @@ export default function AccountsManager() {
       <div className="space-y-4">
         {accounts.map((account) => (
           <Card key={account.id} className={!account.isActive ? "opacity-50 border-muted" : ""}>
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{account.name}</span>
-                    {!account.isActive && (
-                      <Badge variant="destructive" className="text-xs">已禁用</Badge>
-                    )}
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    {account.bucketName} · {account.endpoint}
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    容量: {formatBytes(account.usage.sizeBytes)} /{" "}
-                    {formatBytes(account.quota.maxSizeBytes)} | 写入:{" "}
-                    {formatNumber(account.usage.classAOps)} /{" "}
-                    {formatNumber(account.quota.maxClassAOps)}
-                  </div>
+            <CardContent className="p-4 space-y-3">
+              {/* 第一行：名称 + 操作按钮 */}
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="font-medium truncate">{account.name}</span>
+                  {!account.isActive && (
+                    <Badge variant="destructive" className="text-xs shrink-0">已禁用</Badge>
+                  )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <div className="flex items-center">
@@ -409,6 +399,17 @@ export default function AccountsManager() {
                     <TooltipContent>删除账户</TooltipContent>
                   </Tooltip>
                 </div>
+              </div>
+              {/* 第二行：Bucket 和 Endpoint */}
+              <div className="text-sm text-muted-foreground truncate">
+                {account.bucketName} · {account.endpoint}
+              </div>
+              {/* 第三行：用量信息 */}
+              <div className="text-sm text-muted-foreground">
+                容量: {formatBytes(account.usage.sizeBytes)} /{" "}
+                {formatBytes(account.quota.maxSizeBytes)} | 写入:{" "}
+                {formatNumber(account.usage.classAOps)} /{" "}
+                {formatNumber(account.quota.maxClassAOps)}
               </div>
             </CardContent>
           </Card>
