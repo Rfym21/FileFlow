@@ -105,14 +105,19 @@ export default function AccountFilesDetail() {
   };
 
   /**
-   * 删除文件
+   * 删除文件或目录
    */
   const handleDelete = async (key: string) => {
-    if (!accountId || !confirm(`确定要删除 ${key} 吗？`)) return;
+    const isDir = key.endsWith("/");
+    const confirmMsg = isDir
+      ? `确定要删除目录 "${key}" 及其所有内容吗？此操作不可恢复！`
+      : `确定要删除 ${key} 吗？`;
+
+    if (!accountId || !confirm(confirmMsg)) return;
 
     try {
       await deleteFile(accountId, key);
-      toast.success("删除成功");
+      toast.success(isDir ? "目录删除成功" : "删除成功");
       loadFiles(currentPath);
     } catch (err) {
       console.error("删除失败:", err);
@@ -366,13 +371,26 @@ function FileManagerItem({
 
   if (item.isDir) {
     return (
-      <div
-        className="flex items-center gap-2 py-3 px-3 sm:px-4 rounded hover:bg-accent cursor-pointer group transition-colors"
-        onClick={() => onEnterDirectory(item.key)}
-      >
-        <FolderOpen className="h-4 w-4 sm:h-5 sm:w-5 flex-shrink-0 text-blue-500" />
-        <span className="text-sm sm:text-base flex-1 truncate">{item.name}</span>
-        <ChevronRightIcon className="h-4 w-4 text-muted-foreground" />
+      <div className="flex items-center gap-2 py-3 px-3 sm:px-4 rounded hover:bg-accent group transition-colors">
+        <div
+          className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
+          onClick={() => onEnterDirectory(item.key)}
+        >
+          <FolderOpen className="h-4 w-4 sm:h-5 sm:w-5 flex-shrink-0 text-blue-500" />
+          <span className="text-sm sm:text-base flex-1 truncate">{item.name}</span>
+          <ChevronRightIcon className="h-4 w-4 text-muted-foreground" />
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 sm:h-9 sm:w-9 text-destructive opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(item.key);
+          }}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
       </div>
     );
   }

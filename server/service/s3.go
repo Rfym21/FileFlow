@@ -294,7 +294,7 @@ func ListAccountsFilesByIDs(ctx context.Context, ids []string, prefix string, cu
 	return result, nil
 }
 
-// DeleteFile 删除指定账户的文件
+// DeleteFile 删除指定账户的文件或目录
 func DeleteFile(ctx context.Context, accountID, key string) error {
 	acc, err := store.GetAccountByID(accountID)
 	if err != nil {
@@ -303,6 +303,12 @@ func DeleteFile(ctx context.Context, accountID, key string) error {
 
 	client := getS3Client(acc)
 
+	// 检查是否为目录（以 / 结尾）
+	if strings.HasSuffix(key, "/") {
+		return deleteDirectory(ctx, client, acc.BucketName, key)
+	}
+
+	// 删除单个文件
 	input := &s3.DeleteObjectInput{
 		Bucket: aws.String(acc.BucketName),
 		Key:    aws.String(key),
@@ -311,6 +317,53 @@ func DeleteFile(ctx context.Context, accountID, key string) error {
 	_, err = client.DeleteObject(ctx, input)
 	if err != nil {
 		return fmt.Errorf("删除文件失败: %w", err)
+	}
+
+	return nil
+}
+
+// deleteDirectory 递归删除目录下所有文件
+func deleteDirectory(ctx context.Context, client *s3.Client, bucket, prefix string) error {
+	input := &s3.ListObjectsV2Input{
+		Bucket: aws.String(bucket),
+		Prefix: aws.String(prefix),
+	}
+
+	paginator := s3.NewListObjectsV2Paginator(client, input)
+
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("列出目录文件失败: %w", err)
+		}
+
+		if len(page.Contents) == 0 {
+			continue
+		}
+
+		// 构建删除列表（每次最多 1000 个）
+		var objects []types.ObjectIdentifier
+		for _, obj := range page.Contents {
+			objects = append(objects, types.ObjectIdentifier{
+				Key: obj.Key,
+			})
+		}
+
+		// 批量删除
+		deleteInput := &s3.DeleteObjectsInput{
+			Bucket: aws.String(bucket),
+			Delete: &types.Delete{
+				Objects: objects,
+				Quiet:   aws.Bool(true),
+			},
+		}
+
+		_, err = client.DeleteObjects(ctx, deleteInput)
+		if err != nil {
+			return fmt.Errorf("删除目录文件失败: %w", err)
+		}
+
+		log.Printf("已删除目录 %s 下 %d 个文件", prefix, len(objects))
 	}
 
 	return nil
@@ -365,48 +418,8 @@ func ClearBucket(ctx context.Context, accountID string) error {
 
 	client := getS3Client(acc)
 
-	input := &s3.ListObjectsV2Input{
-		Bucket: aws.String(acc.BucketName),
-	}
-
-	paginator := s3.NewListObjectsV2Paginator(client, input)
-
-	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(ctx)
-		if err != nil {
-			return fmt.Errorf("列出文件失败: %w", err)
-		}
-
-		if len(page.Contents) == 0 {
-			continue
-		}
-
-		// 构建删除列表（每次最多 1000 个）
-		var objects []types.ObjectIdentifier
-		for _, obj := range page.Contents {
-			objects = append(objects, types.ObjectIdentifier{
-				Key: obj.Key,
-			})
-		}
-
-		// 批量删除
-		deleteInput := &s3.DeleteObjectsInput{
-			Bucket: aws.String(acc.BucketName),
-			Delete: &types.Delete{
-				Objects: objects,
-				Quiet:   aws.Bool(true),
-			},
-		}
-
-		_, err = client.DeleteObjects(ctx, deleteInput)
-		if err != nil {
-			return fmt.Errorf("删除文件失败: %w", err)
-		}
-
-		log.Printf("已删除 %d 个文件", len(objects))
-	}
-
-	return nil
+	// 复用 deleteDirectory，传入空前缀删除所有内容
+	return deleteDirectory(ctx, client, acc.BucketName, "")
 }
 
 // DeleteOldFilesResult 删除旧文件结果
