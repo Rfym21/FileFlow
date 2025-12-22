@@ -3,13 +3,13 @@ FROM node:20-alpine AS frontend
 WORKDIR /app/client
 # 先复制依赖文件，利用缓存
 COPY client/package*.json ./
-RUN npm ci --prefer-offline
+RUN npm ci
 # 再复制源码并构建
 COPY client/ .
 RUN npm run build
 
 # Stage 2: 构建后端
-FROM golang:1.24-alpine AS backend
+FROM golang:1.25-alpine AS backend
 WORKDIR /app
 # 先下载依赖，利用缓存
 COPY go.mod go.sum ./
