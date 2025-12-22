@@ -1,5 +1,5 @@
-# Stage 1: 构建前端
-FROM node:20-alpine AS frontend
+# Stage 1: 构建前端（使用原生架构，产出为静态文件无需模拟）
+FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend
 WORKDIR /app/client
 # 先复制依赖文件，利用缓存
 COPY client/package*.json ./
@@ -8,8 +8,8 @@ RUN npm ci
 COPY client/ .
 RUN npm run build
 
-# Stage 2: 构建后端
-FROM golang:1.25-alpine AS backend
+# Stage 2: 构建后端（使用原生架构交叉编译，避免 QEMU 模拟）
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS backend
 WORKDIR /app
 # 先下载依赖，利用缓存
 COPY go.mod go.sum ./
