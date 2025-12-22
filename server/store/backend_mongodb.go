@@ -11,12 +11,13 @@ import (
 )
 
 const (
-	mongoDBName                = "fileflow"
-	mongoAccountsColl          = "accounts"
-	mongoTokensColl            = "tokens"
-	mongoSettingsColl          = "settings"
-	mongoS3CredentialsColl     = "s3_credentials"
-	mongoWebDAVCredentialsColl = "webdav_credentials"
+	mongoDBName                 = "fileflow"
+	mongoAccountsColl           = "accounts"
+	mongoTokensColl             = "tokens"
+	mongoSettingsColl           = "settings"
+	mongoS3CredentialsColl      = "s3_credentials"
+	mongoWebDAVCredentialsColl  = "webdav_credentials"
+	mongoFileExpirationsColl    = "file_expirations"
 )
 
 // MongoBackend MongoDB 数据库后端
@@ -96,6 +97,15 @@ type MongoWebDAVCredential struct {
 	LastUsedAt  string   `bson:"lastUsedAt"`
 }
 
+// MongoFileExpiration MongoDB 中的 FileExpiration 文档结构
+type MongoFileExpiration struct {
+	ID        string `bson:"_id"`
+	AccountID string `bson:"accountId"`
+	FileKey   string `bson:"fileKey"`
+	ExpiresAt string `bson:"expiresAt"`
+	CreatedAt string `bson:"createdAt"`
+}
+
 // NewMongoBackend 创建 MongoDB 后端
 func NewMongoBackend(connStr string) (*MongoBackend, error) {
 	return &MongoBackend{
@@ -159,6 +169,16 @@ func (b *MongoBackend) createIndexes() error {
 		Keys:    bson.D{{Key: "username", Value: 1}},
 		Options: options.Index().SetUnique(true),
 	})
+	if err != nil {
+		return err
+	}
+
+	// file_expirations 集合的 accountId+fileKey 唯一索引
+	fileExpColl := b.db.Collection(mongoFileExpirationsColl)
+	_, err = fileExpColl.Indexes().CreateOne(b.ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "accountId", Value: 1}, {Key: "fileKey", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	})
 	return err
 }
 
@@ -169,6 +189,7 @@ func (b *MongoBackend) Load() (*Data, error) {
 		Tokens:            []Token{},
 		S3Credentials:     []S3Credential{},
 		WebDAVCredentials: []WebDAVCredential{},
+		FileExpirations:   []FileExpiration{},
 	}
 
 	// 加载 accounts
@@ -282,6 +303,30 @@ func (b *MongoBackend) Load() (*Data, error) {
 		data.Settings.EndpointProxyURL = endpointProxyURLDoc.Value
 	}
 
+	var defaultExpirationDaysDoc struct {
+		Key   string `bson:"_id"`
+		Value int    `bson:"value"`
+	}
+	err = settingsColl.FindOne(b.ctx, bson.M{"_id": "default_expiration_days"}).Decode(&defaultExpirationDaysDoc)
+	if err == nil {
+		data.Settings.DefaultExpirationDays = defaultExpirationDaysDoc.Value
+	}
+	if data.Settings.DefaultExpirationDays <= 0 {
+		data.Settings.DefaultExpirationDays = 30
+	}
+
+	var expirationCheckMinutesDoc struct {
+		Key   string `bson:"_id"`
+		Value int    `bson:"value"`
+	}
+	err = settingsColl.FindOne(b.ctx, bson.M{"_id": "expiration_check_minutes"}).Decode(&expirationCheckMinutesDoc)
+	if err == nil {
+		data.Settings.ExpirationCheckMinutes = expirationCheckMinutesDoc.Value
+	}
+	if data.Settings.ExpirationCheckMinutes <= 0 {
+		data.Settings.ExpirationCheckMinutes = 720
+	}
+
 	// 加载 s3_credentials
 	s3CredsColl := b.db.Collection(mongoS3CredentialsColl)
 	cursor, err = s3CredsColl.Find(b.ctx, bson.M{})
@@ -340,6 +385,29 @@ func (b *MongoBackend) Load() (*Data, error) {
 			cred.Permissions = []string{}
 		}
 		data.WebDAVCredentials = append(data.WebDAVCredentials, cred)
+	}
+
+	// 加载 file_expirations
+	fileExpColl := b.db.Collection(mongoFileExpirationsColl)
+	cursor, err = fileExpColl.Find(b.ctx, bson.M{})
+	if err != nil {
+		return nil, fmt.Errorf("查询 file_expirations 失败: %w", err)
+	}
+	defer cursor.Close(b.ctx)
+
+	for cursor.Next(b.ctx) {
+		var doc MongoFileExpiration
+		if err := cursor.Decode(&doc); err != nil {
+			continue
+		}
+		exp := FileExpiration{
+			ID:        doc.ID,
+			AccountID: doc.AccountID,
+			FileKey:   doc.FileKey,
+			ExpiresAt: doc.ExpiresAt,
+			CreatedAt: doc.CreatedAt,
+		}
+		data.FileExpirations = append(data.FileExpirations, exp)
 	}
 
 	return data, nil
@@ -465,6 +533,22 @@ func (b *MongoBackend) Save(data *Data) error {
 			return nil, fmt.Errorf("保存 settings 失败: %w", err)
 		}
 
+		_, err = settingsColl.UpdateOne(sessCtx,
+			bson.M{"_id": "default_expiration_days"},
+			bson.M{"$set": bson.M{"value": data.Settings.DefaultExpirationDays}},
+			options.Update().SetUpsert(true))
+		if err != nil {
+			return nil, fmt.Errorf("保存 settings 失败: %w", err)
+		}
+
+		_, err = settingsColl.UpdateOne(sessCtx,
+			bson.M{"_id": "expiration_check_minutes"},
+			bson.M{"$set": bson.M{"value": data.Settings.ExpirationCheckMinutes}},
+			options.Update().SetUpsert(true))
+		if err != nil {
+			return nil, fmt.Errorf("保存 settings 失败: %w", err)
+		}
+
 		// 清空并重新插入 s3_credentials
 		s3CredsColl := b.db.Collection(mongoS3CredentialsColl)
 		if _, err := s3CredsColl.DeleteMany(sessCtx, bson.M{}); err != nil {
@@ -514,6 +598,28 @@ func (b *MongoBackend) Save(data *Data) error {
 			}
 			if _, err := webdavCredsColl.InsertMany(sessCtx, docs); err != nil {
 				return nil, fmt.Errorf("插入 webdav_credentials 失败: %w", err)
+			}
+		}
+
+		// 清空并重新插入 file_expirations
+		fileExpColl := b.db.Collection(mongoFileExpirationsColl)
+		if _, err := fileExpColl.DeleteMany(sessCtx, bson.M{}); err != nil {
+			return nil, fmt.Errorf("清空 file_expirations 失败: %w", err)
+		}
+
+		if len(data.FileExpirations) > 0 {
+			docs := make([]interface{}, len(data.FileExpirations))
+			for i, exp := range data.FileExpirations {
+				docs[i] = MongoFileExpiration{
+					ID:        exp.ID,
+					AccountID: exp.AccountID,
+					FileKey:   exp.FileKey,
+					ExpiresAt: exp.ExpiresAt,
+					CreatedAt: exp.CreatedAt,
+				}
+			}
+			if _, err := fileExpColl.InsertMany(sessCtx, docs); err != nil {
+				return nil, fmt.Errorf("插入 file_expirations 失败: %w", err)
 			}
 		}
 
@@ -634,6 +740,22 @@ func (b *MongoBackend) saveWithoutTransaction(data *Data) error {
 		return fmt.Errorf("保存 settings 失败: %w", err)
 	}
 
+	_, err = settingsColl.UpdateOne(b.ctx,
+		bson.M{"_id": "default_expiration_days"},
+		bson.M{"$set": bson.M{"value": data.Settings.DefaultExpirationDays}},
+		options.Update().SetUpsert(true))
+	if err != nil {
+		return fmt.Errorf("保存 settings 失败: %w", err)
+	}
+
+	_, err = settingsColl.UpdateOne(b.ctx,
+		bson.M{"_id": "expiration_check_minutes"},
+		bson.M{"$set": bson.M{"value": data.Settings.ExpirationCheckMinutes}},
+		options.Update().SetUpsert(true))
+	if err != nil {
+		return fmt.Errorf("保存 settings 失败: %w", err)
+	}
+
 	// 清空并重新插入 s3_credentials
 	s3CredsColl := b.db.Collection(mongoS3CredentialsColl)
 	if _, err := s3CredsColl.DeleteMany(b.ctx, bson.M{}); err != nil {
@@ -683,6 +805,28 @@ func (b *MongoBackend) saveWithoutTransaction(data *Data) error {
 		}
 		if _, err := webdavCredsColl.InsertMany(b.ctx, docs); err != nil {
 			return fmt.Errorf("插入 webdav_credentials 失败: %w", err)
+		}
+	}
+
+	// 清空并重新插入 file_expirations
+	fileExpColl := b.db.Collection(mongoFileExpirationsColl)
+	if _, err := fileExpColl.DeleteMany(b.ctx, bson.M{}); err != nil {
+		return fmt.Errorf("清空 file_expirations 失败: %w", err)
+	}
+
+	if len(data.FileExpirations) > 0 {
+		docs := make([]interface{}, len(data.FileExpirations))
+		for i, exp := range data.FileExpirations {
+			docs[i] = MongoFileExpiration{
+				ID:        exp.ID,
+				AccountID: exp.AccountID,
+				FileKey:   exp.FileKey,
+				ExpiresAt: exp.ExpiresAt,
+				CreatedAt: exp.CreatedAt,
+			}
+		}
+		if _, err := fileExpColl.InsertMany(b.ctx, docs); err != nil {
+			return fmt.Errorf("插入 file_expirations 失败: %w", err)
 		}
 	}
 

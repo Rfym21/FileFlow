@@ -139,6 +139,8 @@ volumes:
 - **同步间隔** - 账户用量自动同步间隔（分钟），默认 5 分钟
 - **端点代理** - 启用反向代理，隐藏 R2 源站地址
 - **代理 URL** - 反向代理 URL 前缀
+- **默认文件到期时间** - 文件默认有效期（天），0 表示永久，默认 30 天
+- **到期检查间隔** - 自动检查并删除过期文件的间隔（分钟），默认 720 分钟（12 小时）
 
 ## 反向代理
 
@@ -213,6 +215,7 @@ curl -H "Authorization: Bearer your-api-token" https://your-domain/api/files
 - `file` - 上传的文件（必填）
 - `path` - 自定义存储路径
 - `idGroup` - 指定账户 ID
+- `expirationDays` - 文件有效期（天），不填或 -1=使用系统默认，0=永久，>0=指定天数
 
 **GET /api/link** / **DELETE /api/file**
 - `idGroup` - 账户 ID（必填）

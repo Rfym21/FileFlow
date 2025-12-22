@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"fileflow/server/service"
+	"fileflow/server/store"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -71,6 +72,19 @@ func Upload(c *gin.Context) {
 	idGroup := c.PostForm("idGroup")
 	accountID := getFirstID(idGroup)
 
+	// 解析到期天数（可选，默认使用系统设置）
+	expirationDaysStr := c.PostForm("expirationDays")
+	var expirationDays int
+	if expirationDaysStr != "" {
+		expirationDays, _ = strconv.Atoi(expirationDaysStr)
+		// -1 表示使用默认设置，0 表示永久
+		if expirationDays < -1 {
+			expirationDays = -1
+		}
+	} else {
+		expirationDays = -1 // 使用默认设置
+	}
+
 	// 生成文件路径
 	customPath := c.PostForm("path")
 	var key string
@@ -108,6 +122,20 @@ func Upload(c *gin.Context) {
 		return
 	}
 
+	// 创建文件到期记录
+	if expirationDays == -1 {
+		// 使用系统默认设置
+		settings := store.GetSettings()
+		expirationDays = settings.DefaultExpirationDays
+	}
+	if expirationDays > 0 {
+		// expirationDays > 0 才创建到期记录，0 表示永久不过期
+		if err := service.CreateFileExpirationRecord(result.ID, result.Key, expirationDays); err != nil {
+			// 到期记录创建失败不影响上传结果，仅记录日志
+			fmt.Printf("[Upload] 创建文件到期记录失败: %v\n", err)
+		}
+	}
+
 	c.JSON(http.StatusOK, result)
 }
 
@@ -126,6 +154,9 @@ func DeleteFile(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// 删除对应的到期记录（如果存在）
+	service.DeleteFileExpirationRecord(accountID, key)
 
 	c.JSON(http.StatusOK, gin.H{"message": "删除成功"})
 }
@@ -212,4 +243,86 @@ func DeleteOldFiles(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"results": results,
 	})
+}
+
+// FileExpirationResponse 文件到期记录响应（包含账户名）
+type FileExpirationResponse struct {
+	ID          string `json:"id"`
+	AccountID   string `json:"accountId"`
+	AccountName string `json:"accountName"`
+	FileKey     string `json:"fileKey"`
+	ExpiresAt   string `json:"expiresAt"`
+	CreatedAt   string `json:"createdAt"`
+}
+
+// GetFileExpirations 获取文件到期列表
+func GetFileExpirations(c *gin.Context) {
+	expirations := store.GetFileExpirations()
+
+	// 构建账户 ID -> 名称映射
+	accounts := store.GetAccounts()
+	accountMap := make(map[string]string)
+	for _, acc := range accounts {
+		accountMap[acc.ID] = acc.Name
+	}
+
+	// 转换为响应格式
+	result := make([]FileExpirationResponse, 0, len(expirations))
+	for _, exp := range expirations {
+		accountName := accountMap[exp.AccountID]
+		if accountName == "" {
+			accountName = "未知账户"
+		}
+		result = append(result, FileExpirationResponse{
+			ID:          exp.ID,
+			AccountID:   exp.AccountID,
+			AccountName: accountName,
+			FileKey:     exp.FileKey,
+			ExpiresAt:   exp.ExpiresAt,
+			CreatedAt:   exp.CreatedAt,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"expirations": result,
+		"total":       len(result),
+	})
+}
+
+// DeleteFileExpirationByID 删除单个到期记录（同时删除文件）
+func DeleteFileExpirationByID(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少记录 ID"})
+		return
+	}
+
+	// 查找到期记录
+	expirations := store.GetFileExpirations()
+	var target *store.FileExpiration
+	for _, exp := range expirations {
+		if exp.ID == id {
+			target = &exp
+			break
+		}
+	}
+
+	if target == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "记录不存在"})
+		return
+	}
+
+	// 删除 S3 文件
+	if err := service.DeleteFile(c.Request.Context(), target.AccountID, target.FileKey); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除文件失败: " + err.Error()})
+		return
+	}
+
+	// 删除到期记录
+	if err := store.DeleteFileExpirationByID(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除记录失败: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "删除成功"})
 }

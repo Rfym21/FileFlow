@@ -358,15 +358,26 @@ export async function getFiles(
   return request(`/files${query}`);
 }
 
+/**
+ * 上传文件
+ * @param file 要上传的文件
+ * @param path 自定义路径（可选）
+ * @param idGroup 目标账户 ID（可选，不指定则智能选择）
+ * @param expirationDays 到期天数（可选，-1=使用默认设置，0=永久，>0=指定天数）
+ */
 export async function uploadFile(
   file: File,
   path?: string,
-  idGroup?: string
+  idGroup?: string,
+  expirationDays?: number
 ): Promise<UploadResult> {
   const formData = new FormData();
   formData.append("file", file);
   if (path) formData.append("path", path);
   if (idGroup) formData.append("idGroup", idGroup);
+  if (expirationDays !== undefined) {
+    formData.append("expirationDays", expirationDays.toString());
+  }
 
   return request("/upload", {
     method: "POST",
@@ -398,6 +409,8 @@ export interface Settings {
   syncInterval: number;
   endpointProxy: boolean;
   endpointProxyUrl: string;
+  defaultExpirationDays: number;
+  expirationCheckMinutes: number;
 }
 
 export async function getSettings(): Promise<Settings> {
@@ -509,4 +522,28 @@ export async function updateWebDAVCredential(id: string, data: WebDAVCredentialU
 
 export async function deleteWebDAVCredential(id: string): Promise<void> {
   return request(`/webdav-credentials/${id}`, { method: "DELETE" });
+}
+
+// ==================== 文件到期管理 API ====================
+
+export interface FileExpiration {
+  id: string;
+  accountId: string;
+  accountName: string;
+  fileKey: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface FileExpirationsResponse {
+  expirations: FileExpiration[];
+  total: number;
+}
+
+export async function getFileExpirations(): Promise<FileExpirationsResponse> {
+  return request("/file-expirations");
+}
+
+export async function deleteFileExpiration(id: string): Promise<void> {
+  return request(`/file-expirations/${id}`, { method: "DELETE" });
 }

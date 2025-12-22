@@ -64,5 +64,9 @@ func SetupRouter(r *gin.Engine) {
 		// 系统设置
 		admin.GET("/settings", GetSettings)
 		admin.PUT("/settings", UpdateSettings)
+
+		// 文件到期管理
+		admin.GET("/file-expirations", GetFileExpirations)
+		admin.DELETE("/file-expirations/:id", DeleteFileExpirationByID)
 	}
 }

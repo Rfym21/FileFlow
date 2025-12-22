@@ -111,11 +111,22 @@ func (c *WebDAVCredential) HasPermission(perm string) bool {
 	return false
 }
 
+// FileExpiration 文件到期记录
+type FileExpiration struct {
+	ID        string `json:"id"`        // 记录ID
+	AccountID string `json:"accountId"` // 所属账户ID
+	FileKey   string `json:"fileKey"`   // S3中的文件路径
+	ExpiresAt string `json:"expiresAt"` // 到期时间 (ISO 8601)
+	CreatedAt string `json:"createdAt"` // 创建时间
+}
+
 // Settings 系统设置
 type Settings struct {
-	SyncInterval     int    `json:"syncInterval"`     // 同步间隔（分钟），默认 5
-	EndpointProxy    bool   `json:"endpointProxy"`    // 启用 URL 代理
-	EndpointProxyURL string `json:"endpointProxyUrl"` // 反代 URL
+	SyncInterval           int    `json:"syncInterval"`           // 同步间隔（分钟），默认 5
+	EndpointProxy          bool   `json:"endpointProxy"`          // 启用 URL 代理
+	EndpointProxyURL       string `json:"endpointProxyUrl"`       // 反代 URL
+	DefaultExpirationDays  int    `json:"defaultExpirationDays"`  // 默认文件到期天数，默认 30，0 表示永久
+	ExpirationCheckMinutes int    `json:"expirationCheckMinutes"` // 到期检查间隔（分钟），默认 720（12小时）
 }
 
 // Data 存储的完整数据结构
@@ -124,6 +135,7 @@ type Data struct {
 	Tokens            []Token            `json:"tokens"`
 	S3Credentials     []S3Credential     `json:"s3Credentials"`
 	WebDAVCredentials []WebDAVCredential `json:"webdavCredentials"`
+	FileExpirations   []FileExpiration   `json:"fileExpirations"`
 	Settings          Settings           `json:"settings"`
 }
 

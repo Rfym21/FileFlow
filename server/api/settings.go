@@ -31,6 +31,22 @@ func UpdateSettings(c *gin.Context) {
 		settings.SyncInterval = 1440 // 最大 24 小时
 	}
 
+	// 验证默认文件到期天数（0 表示永久，最大 3650 天 = 10 年）
+	if settings.DefaultExpirationDays < 0 {
+		settings.DefaultExpirationDays = 0
+	}
+	if settings.DefaultExpirationDays > 3650 {
+		settings.DefaultExpirationDays = 3650
+	}
+
+	// 验证过期检查间隔（60-1440 分钟，即 1-24 小时）
+	if settings.ExpirationCheckMinutes < 60 {
+		settings.ExpirationCheckMinutes = 60
+	}
+	if settings.ExpirationCheckMinutes > 1440 {
+		settings.ExpirationCheckMinutes = 1440
+	}
+
 	if err := store.UpdateSettings(settings); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

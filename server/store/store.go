@@ -394,6 +394,106 @@ func UpdateSettings(settings Settings) error {
 		settings.SyncInterval = 1
 	}
 
+	// 验证到期检查间隔
+	if settings.ExpirationCheckMinutes < 60 {
+		settings.ExpirationCheckMinutes = 60
+	} else if settings.ExpirationCheckMinutes > 1440 {
+		settings.ExpirationCheckMinutes = 1440
+	}
+
 	data.Settings = settings
+	return save()
+}
+
+// GetFileExpirations 获取所有文件到期记录
+func GetFileExpirations() []FileExpiration {
+	dataLock.RLock()
+	defer dataLock.RUnlock()
+
+	if data.FileExpirations == nil {
+		return []FileExpiration{}
+	}
+
+	result := make([]FileExpiration, len(data.FileExpirations))
+	copy(result, data.FileExpirations)
+	return result
+}
+
+// GetExpiredFiles 获取已过期的文件列表
+func GetExpiredFiles() []FileExpiration {
+	dataLock.RLock()
+	defer dataLock.RUnlock()
+
+	now := NowString()
+	var result []FileExpiration
+	for _, exp := range data.FileExpirations {
+		if exp.ExpiresAt <= now {
+			result = append(result, exp)
+		}
+	}
+	return result
+}
+
+// CreateFileExpiration 创建文件到期记录
+func CreateFileExpiration(exp *FileExpiration) error {
+	dataLock.Lock()
+	defer dataLock.Unlock()
+
+	exp.ID = uuid.New().String()
+	exp.CreatedAt = NowString()
+
+	// 检查是否已存在相同的记录（相同账户和文件）
+	for i, e := range data.FileExpirations {
+		if e.AccountID == exp.AccountID && e.FileKey == exp.FileKey {
+			// 更新现有记录
+			data.FileExpirations[i] = *exp
+			return save()
+		}
+	}
+
+	data.FileExpirations = append(data.FileExpirations, *exp)
+	return save()
+}
+
+// DeleteFileExpiration 删除指定账户和文件的到期记录
+func DeleteFileExpiration(accountID, fileKey string) error {
+	dataLock.Lock()
+	defer dataLock.Unlock()
+
+	for i, exp := range data.FileExpirations {
+		if exp.AccountID == accountID && exp.FileKey == fileKey {
+			data.FileExpirations = append(data.FileExpirations[:i], data.FileExpirations[i+1:]...)
+			return save()
+		}
+	}
+	return nil // 不存在也不报错
+}
+
+// DeleteFileExpirationByID 按 ID 删除到期记录
+func DeleteFileExpirationByID(id string) error {
+	dataLock.Lock()
+	defer dataLock.Unlock()
+
+	for i, exp := range data.FileExpirations {
+		if exp.ID == id {
+			data.FileExpirations = append(data.FileExpirations[:i], data.FileExpirations[i+1:]...)
+			return save()
+		}
+	}
+	return nil
+}
+
+// DeleteFileExpirationsByAccountID 删除指定账户的所有到期记录
+func DeleteFileExpirationsByAccountID(accountID string) error {
+	dataLock.Lock()
+	defer dataLock.Unlock()
+
+	var remaining []FileExpiration
+	for _, exp := range data.FileExpirations {
+		if exp.AccountID != accountID {
+			remaining = append(remaining, exp)
+		}
+	}
+	data.FileExpirations = remaining
 	return save()
 }

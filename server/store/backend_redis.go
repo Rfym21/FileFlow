@@ -14,6 +14,7 @@ const (
 	redisSettingsKey          = "fileflow:settings"
 	redisS3CredentialsKey     = "fileflow:s3_credentials"
 	redisWebDAVCredentialsKey = "fileflow:webdav_credentials"
+	redisFileExpirationsKey   = "fileflow:file_expirations"
 )
 
 // RedisBackend Redis 数据库后端
@@ -55,6 +56,7 @@ func (b *RedisBackend) Load() (*Data, error) {
 		Tokens:            []Token{},
 		S3Credentials:     []S3Credential{},
 		WebDAVCredentials: []WebDAVCredential{},
+		FileExpirations:   []FileExpiration{},
 	}
 
 	// 加载 accounts
@@ -97,9 +99,21 @@ func (b *RedisBackend) Load() (*Data, error) {
 		if v, ok := settingsMap["endpoint_proxy_url"]; ok {
 			data.Settings.EndpointProxyURL = v
 		}
+		if v, ok := settingsMap["default_expiration_days"]; ok {
+			fmt.Sscanf(v, "%d", &data.Settings.DefaultExpirationDays)
+		}
+		if v, ok := settingsMap["expiration_check_minutes"]; ok {
+			fmt.Sscanf(v, "%d", &data.Settings.ExpirationCheckMinutes)
+		}
 	}
 	if data.Settings.SyncInterval <= 0 {
 		data.Settings.SyncInterval = 5
+	}
+	if data.Settings.DefaultExpirationDays <= 0 {
+		data.Settings.DefaultExpirationDays = 30
+	}
+	if data.Settings.ExpirationCheckMinutes <= 0 {
+		data.Settings.ExpirationCheckMinutes = 720
 	}
 
 	// 加载 s3_credentials
@@ -130,6 +144,20 @@ func (b *RedisBackend) Load() (*Data, error) {
 		data.WebDAVCredentials = append(data.WebDAVCredentials, cred)
 	}
 
+	// 加载 file_expirations
+	fileExpMap, err := b.client.HGetAll(b.ctx, redisFileExpirationsKey).Result()
+	if err != nil && err != redis.Nil {
+		return nil, fmt.Errorf("加载 file_expirations 失败: %w", err)
+	}
+
+	for _, jsonStr := range fileExpMap {
+		var exp FileExpiration
+		if err := json.Unmarshal([]byte(jsonStr), &exp); err != nil {
+			continue
+		}
+		data.FileExpirations = append(data.FileExpirations, exp)
+	}
+
 	return data, nil
 }
 
@@ -142,6 +170,7 @@ func (b *RedisBackend) Save(data *Data) error {
 	pipe.Del(b.ctx, redisTokensKey)
 	pipe.Del(b.ctx, redisS3CredentialsKey)
 	pipe.Del(b.ctx, redisWebDAVCredentialsKey)
+	pipe.Del(b.ctx, redisFileExpirationsKey)
 
 	// 保存 accounts
 	if len(data.Accounts) > 0 {
@@ -177,6 +206,8 @@ func (b *RedisBackend) Save(data *Data) error {
 	}
 	pipe.HSet(b.ctx, redisSettingsKey, "endpoint_proxy", endpointProxyVal)
 	pipe.HSet(b.ctx, redisSettingsKey, "endpoint_proxy_url", data.Settings.EndpointProxyURL)
+	pipe.HSet(b.ctx, redisSettingsKey, "default_expiration_days", fmt.Sprintf("%d", data.Settings.DefaultExpirationDays))
+	pipe.HSet(b.ctx, redisSettingsKey, "expiration_check_minutes", fmt.Sprintf("%d", data.Settings.ExpirationCheckMinutes))
 
 	// 保存 s3_credentials
 	if len(data.S3Credentials) > 0 {
@@ -202,6 +233,19 @@ func (b *RedisBackend) Save(data *Data) error {
 			webdavCredsMap[cred.ID] = string(jsonBytes)
 		}
 		pipe.HSet(b.ctx, redisWebDAVCredentialsKey, webdavCredsMap)
+	}
+
+	// 保存 file_expirations
+	if len(data.FileExpirations) > 0 {
+		fileExpMap := make(map[string]string)
+		for _, exp := range data.FileExpirations {
+			jsonBytes, err := json.Marshal(exp)
+			if err != nil {
+				return fmt.Errorf("序列化 file_expiration 失败: %w", err)
+			}
+			fileExpMap[exp.ID] = string(jsonBytes)
+		}
+		pipe.HSet(b.ctx, redisFileExpirationsKey, fileExpMap)
 	}
 
 	_, err := pipe.Exec(b.ctx)

@@ -22,12 +22,14 @@ import {
   Network,
   Server,
   FolderTree,
+  Clock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "仪表盘" },
   { to: "/files", icon: FolderOpen, label: "文件管理" },
+  { to: "/scheduled-deletions", icon: Clock, label: "计划删除" },
   { to: "/settings", icon: Settings, label: "设置" },
   { to: "/guide", icon: BookOpen, label: "参数指南" },
   { to: "/proxy-guide", icon: Network, label: "代理部署" },

@@ -38,6 +38,7 @@ interface FileUploaderProps {
   onUploadComplete?: () => void;
   defaultAccountId?: string;
   defaultPath?: string;
+  defaultExpirationDays?: number;
 }
 
 /**
@@ -68,21 +69,37 @@ function getFileTypeFromUrl(url: string): "image" | "video" | "other" {
   return "other";
 }
 
+// 到期时间预设选项
+const EXPIRATION_OPTIONS = [
+  { value: -1, label: "使用默认设置" },
+  { value: 1, label: "1 天" },
+  { value: 7, label: "7 天" },
+  { value: 30, label: "30 天" },
+  { value: 90, label: "90 天" },
+  { value: 365, label: "1 年" },
+  { value: 0, label: "永久" },
+  { value: -2, label: "自定义" },
+];
+
 export default function FileUploader({
   onUploadComplete,
   defaultAccountId,
   defaultPath,
+  defaultExpirationDays = -1,
 }: FileUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [accounts, setAccounts] = useState<AccountFull[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>(defaultAccountId || "");
   const [customPath, setCustomPath] = useState<string>(defaultPath || "");
+  const [expirationDays, setExpirationDays] = useState<number>(defaultExpirationDays);
+  const [customExpirationDays, setCustomExpirationDays] = useState<string>("30");
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
   const customPathRef = useRef<string>(defaultPath || "");
   const selectedAccountIdRef = useRef<string>(defaultAccountId || "");
+  const expirationDaysRef = useRef<number>(defaultExpirationDays);
 
   // 加载账户列表
   useEffect(() => {
@@ -115,6 +132,16 @@ export default function FileUploader({
   useEffect(() => {
     selectedAccountIdRef.current = selectedAccountId;
   }, [selectedAccountId]);
+
+  // 同步到期天数到 ref（用于上传时获取最新值）
+  useEffect(() => {
+    // -2 表示自定义，使用 customExpirationDays 的值
+    if (expirationDays === -2) {
+      expirationDaysRef.current = parseInt(customExpirationDays) || 30;
+    } else {
+      expirationDaysRef.current = expirationDays;
+    }
+  }, [expirationDays, customExpirationDays]);
 
   /**
    * 处理拖拽进入
@@ -230,7 +257,8 @@ export default function FileUploader({
       const result = await uploadFile(
         upload.file,
         customPathRef.current || undefined,
-        selectedAccountIdRef.current || undefined
+        selectedAccountIdRef.current || undefined,
+        expirationDaysRef.current
       );
 
       clearInterval(progressInterval);
@@ -282,7 +310,7 @@ export default function FileUploader({
   return (
     <div className="space-y-4">
       {/* 上传设置 */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
           <label className="text-sm font-medium mb-1.5 block">目标账户</label>
           <select
@@ -318,6 +346,34 @@ export default function FileUploader({
             />
           </div>
           <p className="text-xs text-muted-foreground mt-1">例如：images/avatar 或 docs/2024</p>
+        </div>
+        <div>
+          <label className="text-sm font-medium mb-1.5 block">文件有效期</label>
+          <div className="flex gap-2">
+            <select
+              value={expirationDays}
+              onChange={(e) => setExpirationDays(parseInt(e.target.value))}
+              className="flex-1 h-9 px-3 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              {EXPIRATION_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            {expirationDays === -2 && (
+              <Input
+                type="number"
+                min="1"
+                max="3650"
+                value={customExpirationDays}
+                onChange={(e) => setCustomExpirationDays(e.target.value)}
+                placeholder="天数"
+                className="w-20 h-9"
+              />
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">文件到期后将自动删除</p>
         </div>
       </div>
       {hasCompleted && (

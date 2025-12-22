@@ -228,6 +228,12 @@ curl -X GET "${baseUrl}/api/files?idGroup=xxx&prefix=images/&limit=20" \\
                       <td className="py-2 pr-4 text-muted-foreground">否</td>
                       <td className="py-2 text-muted-foreground">指定上传到的账户 ID，不填则智能选择</td>
                     </tr>
+                    <tr>
+                      <td className="py-2 pr-4"><code>expirationDays</code></td>
+                      <td className="py-2 pr-4 text-muted-foreground">number</td>
+                      <td className="py-2 pr-4 text-muted-foreground">否</td>
+                      <td className="py-2 text-muted-foreground">文件有效期（天）。不填或 -1=使用系统默认，0=永久，&gt;0=指定天数</td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
@@ -235,17 +241,24 @@ curl -X GET "${baseUrl}/api/files?idGroup=xxx&prefix=images/&limit=20" \\
             <div>
               <p className="text-sm font-medium mb-2">请求示例</p>
               <pre className="bg-muted p-4 rounded-lg text-sm overflow-x-auto">
-{`# 智能上传（自动选择账户）
+{`# 智能上传（自动选择账户，使用默认有效期）
 curl -X POST "${baseUrl}/api/upload" \\
   -H "Authorization: Bearer your-api-token" \\
   -F "file=@/path/to/image.jpg" \\
   -F "path=images/2024"
 
-# 指定账户上传
+# 指定账户上传 + 设置 7 天后过期
 curl -X POST "${baseUrl}/api/upload" \\
   -H "Authorization: Bearer your-api-token" \\
   -F "file=@/path/to/image.jpg" \\
-  -F "idGroup=xxx-xxx-xxx"`}
+  -F "idGroup=xxx-xxx-xxx" \\
+  -F "expirationDays=7"
+
+# 上传永久文件（不过期）
+curl -X POST "${baseUrl}/api/upload" \\
+  -H "Authorization: Bearer your-api-token" \\
+  -F "file=@/path/to/image.jpg" \\
+  -F "expirationDays=0"`}
               </pre>
             </div>
             <div>

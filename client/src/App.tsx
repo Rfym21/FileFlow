@@ -12,6 +12,7 @@ import ProxyGuide from "@/pages/ProxyGuide";
 import ApiDocs from "@/pages/ApiDocs";
 import S3Docs from "@/pages/S3Docs";
 import WebDAVDocs from "@/pages/WebDAVDocs";
+import ScheduledDeletions from "@/pages/ScheduledDeletions";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth();
@@ -48,6 +49,7 @@ function App() {
             <Route index element={<Dashboard />} />
             <Route path="files" element={<Files />} />
             <Route path="files/:accountId" element={<AccountFilesDetail />} />
+            <Route path="scheduled-deletions" element={<ScheduledDeletions />} />
             <Route path="settings" element={<Settings />} />
             <Route path="guide" element={<Guide />} />
             <Route path="proxy-guide" element={<ProxyGuide />} />

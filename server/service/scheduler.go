@@ -25,13 +25,13 @@ func StartScheduler() {
 	scheduler = cron.New()
 
 	// 同步使用量任务，将分钟数转换为 cron 表达式
-	interval := settings.SyncInterval
-	if interval <= 0 {
-		interval = 5
+	syncInterval := settings.SyncInterval
+	if syncInterval <= 0 {
+		syncInterval = 5
 	}
-	cronExpr := fmt.Sprintf("*/%d * * * *", interval)
+	syncCronExpr := fmt.Sprintf("*/%d * * * *", syncInterval)
 
-	_, err := scheduler.AddFunc(cronExpr, func() {
+	_, err := scheduler.AddFunc(syncCronExpr, func() {
 		log.Println("[Scheduler] 开始执行定时同步任务")
 		SyncAllAccountsUsage(context.Background())
 	})
@@ -39,8 +39,23 @@ func StartScheduler() {
 		log.Printf("[Scheduler] 添加同步任务失败: %v", err)
 	}
 
+	// 文件过期检查任务
+	expCheckInterval := settings.ExpirationCheckMinutes
+	if expCheckInterval <= 0 {
+		expCheckInterval = 720 // 默认 12 小时
+	}
+	expCronExpr := fmt.Sprintf("*/%d * * * *", expCheckInterval)
+
+	_, err = scheduler.AddFunc(expCronExpr, func() {
+		log.Println("[Scheduler] 开始执行文件过期检查任务")
+		CheckAndDeleteExpiredFiles(context.Background())
+	})
+	if err != nil {
+		log.Printf("[Scheduler] 添加过期检查任务失败: %v", err)
+	}
+
 	scheduler.Start()
-	log.Printf("[Scheduler] 定时任务调度器已启动 (间隔: %d 分钟)", interval)
+	log.Printf("[Scheduler] 定时任务调度器已启动 (同步间隔: %d 分钟, 过期检查间隔: %d 分钟)", syncInterval, expCheckInterval)
 }
 
 // StopScheduler 停止定时任务调度器
@@ -68,13 +83,14 @@ func ReloadScheduler() {
 	settings := store.GetSettings()
 	scheduler = cron.New()
 
-	interval := settings.SyncInterval
-	if interval <= 0 {
-		interval = 5
+	// 同步使用量任务
+	syncInterval := settings.SyncInterval
+	if syncInterval <= 0 {
+		syncInterval = 5
 	}
-	cronExpr := fmt.Sprintf("*/%d * * * *", interval)
+	syncCronExpr := fmt.Sprintf("*/%d * * * *", syncInterval)
 
-	_, err := scheduler.AddFunc(cronExpr, func() {
+	_, err := scheduler.AddFunc(syncCronExpr, func() {
 		log.Println("[Scheduler] 开始执行定时同步任务")
 		SyncAllAccountsUsage(context.Background())
 	})
@@ -83,6 +99,22 @@ func ReloadScheduler() {
 		return
 	}
 
+	// 文件过期检查任务
+	expCheckInterval := settings.ExpirationCheckMinutes
+	if expCheckInterval <= 0 {
+		expCheckInterval = 720 // 默认 12 小时
+	}
+	expCronExpr := fmt.Sprintf("*/%d * * * *", expCheckInterval)
+
+	_, err = scheduler.AddFunc(expCronExpr, func() {
+		log.Println("[Scheduler] 开始执行文件过期检查任务")
+		CheckAndDeleteExpiredFiles(context.Background())
+	})
+	if err != nil {
+		log.Printf("[Scheduler] 添加过期检查任务失败: %v", err)
+		return
+	}
+
 	scheduler.Start()
-	log.Printf("[Scheduler] 定时任务调度器已重载 (间隔: %d 分钟)", interval)
+	log.Printf("[Scheduler] 定时任务调度器已重载 (同步间隔: %d 分钟, 过期检查间隔: %d 分钟)", syncInterval, expCheckInterval)
 }

@@ -138,6 +138,21 @@ func (b *SQLiteBackend) createTables() error {
 			last_used_at TEXT
 		)
 	`)
+	if err != nil {
+		return err
+	}
+
+	// 创建 file_expirations 表
+	_, err = b.db.Exec(`
+		CREATE TABLE IF NOT EXISTS file_expirations (
+			id TEXT PRIMARY KEY,
+			account_id TEXT NOT NULL,
+			file_key TEXT NOT NULL,
+			expires_at TEXT NOT NULL,
+			created_at TEXT,
+			UNIQUE(account_id, file_key)
+		)
+	`)
 	return err
 }
 
@@ -148,6 +163,7 @@ func (b *SQLiteBackend) Load() (*Data, error) {
 		Tokens:            []Token{},
 		S3Credentials:     []S3Credential{},
 		WebDAVCredentials: []WebDAVCredential{},
+		FileExpirations:   []FileExpiration{},
 	}
 
 	// 加载 accounts
@@ -258,6 +274,24 @@ func (b *SQLiteBackend) Load() (*Data, error) {
 		data.Settings.EndpointProxyURL = endpointProxyURL.String
 	}
 
+	var defaultExpirationDays sql.NullString
+	err = b.db.QueryRow(`SELECT value FROM settings WHERE key = 'default_expiration_days'`).Scan(&defaultExpirationDays)
+	if err == nil && defaultExpirationDays.Valid {
+		fmt.Sscanf(defaultExpirationDays.String, "%d", &data.Settings.DefaultExpirationDays)
+	}
+	if data.Settings.DefaultExpirationDays <= 0 {
+		data.Settings.DefaultExpirationDays = 30
+	}
+
+	var expirationCheckMinutes sql.NullString
+	err = b.db.QueryRow(`SELECT value FROM settings WHERE key = 'expiration_check_minutes'`).Scan(&expirationCheckMinutes)
+	if err == nil && expirationCheckMinutes.Valid {
+		fmt.Sscanf(expirationCheckMinutes.String, "%d", &data.Settings.ExpirationCheckMinutes)
+	}
+	if data.Settings.ExpirationCheckMinutes <= 0 {
+		data.Settings.ExpirationCheckMinutes = 720
+	}
+
 	// 加载 s3_credentials
 	rows, err = b.db.Query(`
 		SELECT id, access_key_id, secret_access_key, account_id, description,
@@ -334,6 +368,29 @@ func (b *SQLiteBackend) Load() (*Data, error) {
 		cred.LastUsedAt = lastUsedAt.String
 
 		data.WebDAVCredentials = append(data.WebDAVCredentials, cred)
+	}
+
+	// 加载 file_expirations
+	rows, err = b.db.Query(`
+		SELECT id, account_id, file_key, expires_at, created_at
+		FROM file_expirations
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("查询 file_expirations 失败: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var exp FileExpiration
+		var createdAt sql.NullString
+
+		err := rows.Scan(&exp.ID, &exp.AccountID, &exp.FileKey, &exp.ExpiresAt, &createdAt)
+		if err != nil {
+			return nil, fmt.Errorf("扫描 file_expiration 行失败: %w", err)
+		}
+
+		exp.CreatedAt = createdAt.String
+		data.FileExpirations = append(data.FileExpirations, exp)
 	}
 
 	return data, nil
@@ -434,6 +491,18 @@ func (b *SQLiteBackend) Save(data *Data) error {
 		return fmt.Errorf("保存 settings 失败: %w", err)
 	}
 
+	_, err = tx.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('default_expiration_days', ?)`,
+		fmt.Sprintf("%d", data.Settings.DefaultExpirationDays))
+	if err != nil {
+		return fmt.Errorf("保存 settings 失败: %w", err)
+	}
+
+	_, err = tx.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('expiration_check_minutes', ?)`,
+		fmt.Sprintf("%d", data.Settings.ExpirationCheckMinutes))
+	if err != nil {
+		return fmt.Errorf("保存 settings 失败: %w", err)
+	}
+
 	// 清空并重新插入 s3_credentials
 	if _, err := tx.Exec("DELETE FROM s3_credentials"); err != nil {
 		return fmt.Errorf("清空 s3_credentials 失败: %w", err)
@@ -483,6 +552,21 @@ func (b *SQLiteBackend) Save(data *Data) error {
 		)
 		if err != nil {
 			return fmt.Errorf("插入 webdav_credential 失败: %w", err)
+		}
+	}
+
+	// 清空并重新插入 file_expirations
+	if _, err := tx.Exec("DELETE FROM file_expirations"); err != nil {
+		return fmt.Errorf("清空 file_expirations 失败: %w", err)
+	}
+
+	for _, exp := range data.FileExpirations {
+		_, err := tx.Exec(`
+			INSERT INTO file_expirations (id, account_id, file_key, expires_at, created_at)
+			VALUES (?, ?, ?, ?, ?)
+		`, exp.ID, exp.AccountID, exp.FileKey, exp.ExpiresAt, exp.CreatedAt)
+		if err != nil {
+			return fmt.Errorf("插入 file_expiration 失败: %w", err)
 		}
 	}
 
