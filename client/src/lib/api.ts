@@ -159,8 +159,47 @@ export interface AccountRequest {
   quota: Quota;
 }
 
+// ==================== 分页相关类型 ====================
+
+export interface PagedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export interface AccountsStats {
+  totalAccounts: number;
+  availableCount: number;
+  totalSizeBytes: number;
+  totalQuotaBytes: number;
+  totalWriteOps: number;
+  totalReadOps: number;
+}
+
+/**
+ * 获取所有账户（不分页，兼容旧接口）
+ */
 export async function getAccounts(): Promise<AccountFull[]> {
   return request("/accounts");
+}
+
+/**
+ * 分页获取账户列表
+ */
+export async function getAccountsPaged(
+  page: number,
+  pageSize: number
+): Promise<PagedResponse<AccountFull>> {
+  return request(`/accounts?page=${page}&pageSize=${pageSize}`);
+}
+
+/**
+ * 获取账户统计信息
+ */
+export async function getAccountsStats(): Promise<AccountsStats> {
+  return request("/accounts/stats");
 }
 
 export async function getAccount(id: string): Promise<AccountFull> {
@@ -188,13 +227,46 @@ export async function deleteAccount(id: string): Promise<void> {
   return request(`/accounts/${id}`, { method: "DELETE" });
 }
 
-export async function syncAccounts(accountId?: string): Promise<void> {
+/**
+ * 同步账户使用量
+ * @param accountId 可选，指定账户 ID 则同步单个账户，否则同步所有账户
+ * @returns 同步所有账户时返回账户列表，同步单个账户时返回该账户信息
+ */
+export async function syncAccounts(accountId?: string): Promise<AccountFull[] | Account> {
   const query = accountId ? `?accountId=${accountId}` : "";
   return request(`/accounts/sync${query}`, { method: "POST" });
 }
 
 export async function clearBucket(accountId: string): Promise<void> {
   return request(`/accounts/${accountId}/clear`, { method: "POST" });
+}
+
+// ==================== 批量删除旧文件 API ====================
+
+export interface DeleteOldFilesResult {
+  accountId: string;
+  accountName: string;
+  deletedCount: number;
+  error?: string;
+}
+
+export interface DeleteOldFilesResponse {
+  results: DeleteOldFilesResult[];
+}
+
+/**
+ * 批量删除指定账户中早于指定日期的文件
+ * @param accountIds 账户 ID 列表
+ * @param beforeDate 日期字符串，格式为 YYYY-MM-DD
+ */
+export async function deleteOldFiles(
+  accountIds: string[],
+  beforeDate: string
+): Promise<DeleteOldFilesResponse> {
+  return request("/accounts/delete-old-files", {
+    method: "POST",
+    body: JSON.stringify({ accountIds, beforeDate }),
+  });
 }
 
 // ==================== Token API ====================

@@ -35,12 +35,14 @@ func SetupRouter(r *gin.Engine) {
 	{
 		// 账户管理
 		admin.GET("/accounts", GetAccounts)
+		admin.GET("/accounts/stats", GetAccountsStats)
 		admin.GET("/accounts/:id", GetAccount)
 		admin.POST("/accounts", CreateAccount)
 		admin.PUT("/accounts/:id", UpdateAccount)
 		admin.DELETE("/accounts/:id", DeleteAccount)
 		admin.POST("/accounts/sync", SyncAccounts)
 		admin.POST("/accounts/:id/clear", ClearBucket)
+		admin.POST("/accounts/delete-old-files", DeleteOldFiles)
 
 		// Token 管理
 		admin.GET("/tokens", GetTokens)

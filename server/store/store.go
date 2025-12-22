@@ -87,6 +87,94 @@ func GetAccounts() []Account {
 	return result
 }
 
+// AccountsPage 账户分页结果
+type AccountsPage struct {
+	Items      []Account `json:"items"`
+	Total      int       `json:"total"`
+	Page       int       `json:"page"`
+	PageSize   int       `json:"pageSize"`
+	TotalPages int       `json:"totalPages"`
+}
+
+// GetAccountsPaged 分页获取账户
+func GetAccountsPaged(page, pageSize int) AccountsPage {
+	dataLock.RLock()
+	defer dataLock.RUnlock()
+
+	total := len(data.Accounts)
+	if pageSize <= 0 {
+		pageSize = 10
+	}
+	if page <= 0 {
+		page = 1
+	}
+
+	totalPages := (total + pageSize - 1) / pageSize
+	if totalPages == 0 {
+		totalPages = 1
+	}
+
+	start := (page - 1) * pageSize
+	end := start + pageSize
+
+	if start >= total {
+		return AccountsPage{
+			Items:      []Account{},
+			Total:      total,
+			Page:       page,
+			PageSize:   pageSize,
+			TotalPages: totalPages,
+		}
+	}
+
+	if end > total {
+		end = total
+	}
+
+	result := make([]Account, end-start)
+	copy(result, data.Accounts[start:end])
+
+	return AccountsPage{
+		Items:      result,
+		Total:      total,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalPages: totalPages,
+	}
+}
+
+// GetAccountsStats 获取账户统计信息（不含详细数据）
+type AccountsStats struct {
+	TotalAccounts   int   `json:"totalAccounts"`
+	AvailableCount  int   `json:"availableCount"`
+	TotalSizeBytes  int64 `json:"totalSizeBytes"`
+	TotalQuotaBytes int64 `json:"totalQuotaBytes"`
+	TotalWriteOps   int64 `json:"totalWriteOps"`
+	TotalReadOps    int64 `json:"totalReadOps"`
+}
+
+// GetAccountsStats 获取账户统计信息
+func GetAccountsStats() AccountsStats {
+	dataLock.RLock()
+	defer dataLock.RUnlock()
+
+	stats := AccountsStats{
+		TotalAccounts: len(data.Accounts),
+	}
+
+	for _, acc := range data.Accounts {
+		if acc.IsAvailable() {
+			stats.AvailableCount++
+		}
+		stats.TotalSizeBytes += acc.Usage.SizeBytes
+		stats.TotalQuotaBytes += acc.Quota.MaxSizeBytes
+		stats.TotalWriteOps += acc.Usage.ClassAOps
+		stats.TotalReadOps += acc.Usage.ClassBOps
+	}
+
+	return stats
+}
+
 // GetActiveAccounts 获取所有激活的账户
 func GetActiveAccounts() []Account {
 	dataLock.RLock()

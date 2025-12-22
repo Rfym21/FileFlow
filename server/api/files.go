@@ -177,3 +177,39 @@ func ClearBucket(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "清空成功"})
 }
+
+// DeleteOldFilesRequest 删除旧文件请求
+type DeleteOldFilesRequest struct {
+	AccountIDs []string `json:"accountIds" binding:"required"`
+	BeforeDate string   `json:"beforeDate" binding:"required"`
+}
+
+// DeleteOldFiles 批量删除指定账户中早于指定时间的文件
+func DeleteOldFiles(c *gin.Context) {
+	var req DeleteOldFilesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误: " + err.Error()})
+		return
+	}
+
+	if len(req.AccountIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请选择至少一个账户"})
+		return
+	}
+
+	// 解析日期
+	beforeDate, err := time.Parse("2006-01-02", req.BeforeDate)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "日期格式错误，请使用 YYYY-MM-DD 格式"})
+		return
+	}
+
+	// 设置为当天结束时间（23:59:59）
+	beforeDate = beforeDate.Add(24*time.Hour - time.Second)
+
+	results := service.DeleteOldFilesMultiple(c.Request.Context(), req.AccountIDs, beforeDate)
+
+	c.JSON(http.StatusOK, gin.H{
+		"results": results,
+	})
+}

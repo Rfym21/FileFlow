@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
 import {
   Card,
@@ -10,7 +10,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Pagination } from "@/components/ui/pagination";
-import { getAccounts, syncAccounts, type AccountFull } from "@/lib/api";
+import {
+  getAccountsPaged,
+  getAccountsStats,
+  syncAccounts,
+  type AccountFull,
+  type AccountsStats,
+} from "@/lib/api";
 import { formatBytes, formatNumber } from "@/lib/utils";
 import {
   HardDrive,
@@ -26,27 +32,54 @@ const PAGE_SIZE = 6;
 
 export default function Dashboard() {
   const [accounts, setAccounts] = useState<AccountFull[]>([]);
+  const [stats, setStats] = useState<AccountsStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncingAccountId, setSyncingAccountId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
 
-  const loadAccounts = async () => {
+  const loadStats = useCallback(async () => {
     try {
-      const data = await getAccounts();
-      setAccounts(data || []);
+      const data = await getAccountsStats();
+      setStats(data);
+    } catch (err) {
+      console.error("加载统计信息失败:", err);
+    }
+  }, []);
+
+  const loadAccounts = useCallback(async (page: number) => {
+    try {
+      const data = await getAccountsPaged(page, PAGE_SIZE);
+      setAccounts(data.items || []);
+      setTotalPages(data.totalPages);
+      setTotalItems(data.total);
+      setCurrentPage(data.page);
     } catch (err) {
       console.error("加载账户失败:", err);
+    }
+  }, []);
+
+  const loadData = useCallback(async (page: number = currentPage) => {
+    setLoading(true);
+    try {
+      await Promise.all([loadStats(), loadAccounts(page)]);
     } finally {
       setLoading(false);
     }
+  }, [loadStats, loadAccounts, currentPage]);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    loadAccounts(page);
   };
 
   const handleSync = async () => {
     setSyncing(true);
     try {
       await syncAccounts();
-      setTimeout(loadAccounts, 1000);
+      await loadData(currentPage);
       toast.success("同步成功");
     } catch (err) {
       console.error("同步失败:", err);
@@ -60,7 +93,7 @@ export default function Dashboard() {
     setSyncingAccountId(accountId);
     try {
       await syncAccounts(accountId);
-      await loadAccounts();
+      await loadData(currentPage);
       toast.success("同步成功");
     } catch (err) {
       console.error("同步失败:", err);
@@ -71,29 +104,8 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    loadAccounts();
+    loadData(1);
   }, []);
-
-  // 统计数据
-  const totalSize = accounts.reduce((sum, a) => sum + a.usage.sizeBytes, 0);
-  const totalQuota = accounts.reduce((sum, a) => sum + a.quota.maxSizeBytes, 0);
-  const totalWriteOps = accounts.reduce((sum, a) => sum + a.usage.classAOps, 0);
-  const totalReadOps = accounts.reduce((sum, a) => sum + (a.usage.classBOps || 0), 0);
-  const availableCount = accounts.filter((a) => a.isAvailable).length;
-
-  // 分页计算
-  const totalPages = Math.ceil(accounts.length / PAGE_SIZE);
-  const paginatedAccounts = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE;
-    return accounts.slice(start, start + PAGE_SIZE);
-  }, [accounts, currentPage]);
-
-  // 当账户数据变化时重置页码
-  useEffect(() => {
-    if (currentPage > totalPages && totalPages > 0) {
-      setCurrentPage(totalPages);
-    }
-  }, [accounts.length, totalPages, currentPage]);
 
   if (loading) {
     return (
@@ -126,13 +138,13 @@ export default function Dashboard() {
             <HardDrive className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatBytes(totalSize)}</div>
+            <div className="text-2xl font-bold">{formatBytes(stats?.totalSizeBytes || 0)}</div>
             <p className="text-xs text-muted-foreground">
-              总配额 {formatBytes(totalQuota)}
+              总配额 {formatBytes(stats?.totalQuotaBytes || 0)}
             </p>
             <Progress
-              value={totalSize}
-              max={totalQuota}
+              value={stats?.totalSizeBytes || 0}
+              max={stats?.totalQuotaBytes || 1}
               className="mt-2"
             />
           </CardContent>
@@ -144,7 +156,7 @@ export default function Dashboard() {
             <Upload className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatNumber(totalWriteOps)}</div>
+            <div className="text-2xl font-bold">{formatNumber(stats?.totalWriteOps || 0)}</div>
             <p className="text-xs text-muted-foreground">本月累计（Class A）</p>
           </CardContent>
         </Card>
@@ -155,7 +167,7 @@ export default function Dashboard() {
             <Download className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatNumber(totalReadOps)}</div>
+            <div className="text-2xl font-bold">{formatNumber(stats?.totalReadOps || 0)}</div>
             <p className="text-xs text-muted-foreground">本月累计（Class B）</p>
           </CardContent>
         </Card>
@@ -167,7 +179,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {availableCount} / {accounts.length}
+              {stats?.availableCount || 0} / {stats?.totalAccounts || 0}
             </div>
             <p className="text-xs text-muted-foreground">可正常上传的账户</p>
           </CardContent>
@@ -177,7 +189,7 @@ export default function Dashboard() {
       {/* 账户列表 */}
       <div>
         <h2 className="text-xl font-semibold mb-4">账户状态</h2>
-        {accounts.length === 0 ? (
+        {totalItems === 0 ? (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-12">
               <HardDrive className="h-12 w-12 text-muted-foreground mb-4" />
@@ -187,7 +199,7 @@ export default function Dashboard() {
         ) : (
           <>
             <div className="grid gap-4 md:grid-cols-2">
-              {paginatedAccounts.map((account) => (
+              {accounts.map((account) => (
                 <Card key={account.id} className={!account.isActive ? "opacity-50 border-muted" : ""}>
                   <CardHeader className="pb-2">
                     <div className="flex items-center justify-between">
@@ -271,8 +283,8 @@ export default function Dashboard() {
             <Pagination
               currentPage={currentPage}
               totalPages={totalPages}
-              onPageChange={setCurrentPage}
-              totalItems={accounts.length}
+              onPageChange={handlePageChange}
+              totalItems={totalItems}
               pageSize={PAGE_SIZE}
             />
           </>

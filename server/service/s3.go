@@ -409,6 +409,115 @@ func ClearBucket(ctx context.Context, accountID string) error {
 	return nil
 }
 
+// DeleteOldFilesResult 删除旧文件结果
+type DeleteOldFilesResult struct {
+	AccountID    string `json:"accountId"`
+	AccountName  string `json:"accountName"`
+	DeletedCount int    `json:"deletedCount"`
+	Error        string `json:"error,omitempty"`
+}
+
+// DeleteOldFiles 删除指定账户中早于指定时间的文件
+func DeleteOldFiles(ctx context.Context, accountID string, before time.Time) (*DeleteOldFilesResult, error) {
+	acc, err := store.GetAccountByID(accountID)
+	if err != nil {
+		return nil, fmt.Errorf("账户不存在: %w", err)
+	}
+
+	client := getS3Client(acc)
+
+	input := &s3.ListObjectsV2Input{
+		Bucket: aws.String(acc.BucketName),
+	}
+
+	paginator := s3.NewListObjectsV2Paginator(client, input)
+	totalDeleted := 0
+
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return &DeleteOldFilesResult{
+				AccountID:    acc.ID,
+				AccountName:  acc.Name,
+				DeletedCount: totalDeleted,
+				Error:        fmt.Sprintf("列出文件失败: %v", err),
+			}, nil
+		}
+
+		if len(page.Contents) == 0 {
+			continue
+		}
+
+		// 筛选早于指定时间的文件
+		var objects []types.ObjectIdentifier
+		for _, obj := range page.Contents {
+			if obj.LastModified != nil && obj.LastModified.Before(before) {
+				objects = append(objects, types.ObjectIdentifier{
+					Key: obj.Key,
+				})
+			}
+		}
+
+		if len(objects) == 0 {
+			continue
+		}
+
+		// 批量删除
+		deleteInput := &s3.DeleteObjectsInput{
+			Bucket: aws.String(acc.BucketName),
+			Delete: &types.Delete{
+				Objects: objects,
+				Quiet:   aws.Bool(true),
+			},
+		}
+
+		_, err = client.DeleteObjects(ctx, deleteInput)
+		if err != nil {
+			return &DeleteOldFilesResult{
+				AccountID:    acc.ID,
+				AccountName:  acc.Name,
+				DeletedCount: totalDeleted,
+				Error:        fmt.Sprintf("删除文件失败: %v", err),
+			}, nil
+		}
+
+		totalDeleted += len(objects)
+		log.Printf("账户 %s: 已删除 %d 个旧文件", acc.Name, len(objects))
+	}
+
+	return &DeleteOldFilesResult{
+		AccountID:    acc.ID,
+		AccountName:  acc.Name,
+		DeletedCount: totalDeleted,
+	}, nil
+}
+
+// DeleteOldFilesMultiple 批量删除多个账户中早于指定时间的文件
+func DeleteOldFilesMultiple(ctx context.Context, accountIDs []string, before time.Time) []*DeleteOldFilesResult {
+	var results []*DeleteOldFilesResult
+
+	for _, accountID := range accountIDs {
+		result, err := DeleteOldFiles(ctx, accountID, before)
+		if err != nil {
+			acc, _ := store.GetAccountByID(accountID)
+			accountName := accountID
+			if acc != nil {
+				accountName = acc.Name
+			}
+			results = append(results, &DeleteOldFilesResult{
+				AccountID:    accountID,
+				AccountName:  accountName,
+				DeletedCount: 0,
+				Error:        err.Error(),
+			})
+		} else {
+			results = append(results, result)
+		}
+	}
+
+	return results
+}
+
 // GetAccountStorageSize 获取账户存储使用量
 func GetAccountStorageSize(ctx context.Context, acc *store.Account) (int64, error) {
 	client := getS3Client(acc)

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strconv"
 
 	"fileflow/server/service"
 	"fileflow/server/store"
@@ -117,16 +118,47 @@ func toAccountFullResponse(acc *store.Account) AccountFullResponse {
 	}
 }
 
-// GetAccounts 获取所有账户
+// GetAccounts 获取账户列表（支持分页）
 func GetAccounts(c *gin.Context) {
-	accounts := store.GetAccounts()
+	pageStr := c.Query("page")
+	pageSizeStr := c.Query("pageSize")
 
-	var result []AccountFullResponse
-	for _, acc := range accounts {
-		result = append(result, toAccountFullResponse(&acc))
+	// 如果没有分页参数，返回所有账户（兼容旧接口）
+	if pageStr == "" && pageSizeStr == "" {
+		accounts := store.GetAccounts()
+		var result []AccountFullResponse
+		for _, acc := range accounts {
+			result = append(result, toAccountFullResponse(&acc))
+		}
+		c.JSON(http.StatusOK, result)
+		return
 	}
 
-	c.JSON(http.StatusOK, result)
+	// 分页获取
+	page, _ := strconv.Atoi(pageStr)
+	pageSize, _ := strconv.Atoi(pageSizeStr)
+
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 10
+	}
+
+	pagedResult := store.GetAccountsPaged(page, pageSize)
+
+	var items []AccountFullResponse
+	for _, acc := range pagedResult.Items {
+		items = append(items, toAccountFullResponse(&acc))
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"items":      items,
+		"total":      pagedResult.Total,
+		"page":       pagedResult.Page,
+		"pageSize":   pagedResult.PageSize,
+		"totalPages": pagedResult.TotalPages,
+	})
 }
 
 // GetAccount 获取单个账户
@@ -259,8 +291,21 @@ func SyncAccounts(c *gin.Context) {
 		acc, _ = store.GetAccountByID(accountID)
 		c.JSON(http.StatusOK, toAccountResponse(acc))
 	} else {
-		// 同步所有账户
-		go service.SyncAllAccountsUsage(context.Background())
-		c.JSON(http.StatusOK, gin.H{"message": "同步任务已启动"})
+		// 同步所有账户（同步执行，等待完成）
+		service.SyncAllAccountsUsage(context.Background())
+
+		// 返回更新后的所有账户信息
+		accounts := store.GetAccounts()
+		var result []AccountFullResponse
+		for _, acc := range accounts {
+			result = append(result, toAccountFullResponse(&acc))
+		}
+		c.JSON(http.StatusOK, result)
 	}
+}
+
+// GetAccountsStats 获取账户统计信息
+func GetAccountsStats(c *gin.Context) {
+	stats := store.GetAccountsStats()
+	c.JSON(http.StatusOK, stats)
 }

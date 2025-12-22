@@ -1,12 +1,12 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Pagination } from "@/components/ui/pagination";
 import {
-  getFiles,
-  type AccountFiles,
+  getAccountsPaged,
+  type AccountFull,
 } from "@/lib/api";
 import { formatBytes } from "@/lib/utils";
 import {
@@ -23,40 +23,36 @@ const PAGE_SIZE = 9;
 
 export default function Files() {
   const navigate = useNavigate();
-  const [accountFiles, setAccountFiles] = useState<AccountFiles[]>([]);
+  const [accounts, setAccounts] = useState<AccountFull[]>([]);
   const [loading, setLoading] = useState(true);
   const [showUploader, setShowUploader] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
 
-  // 分页计算
-  const totalPages = Math.ceil(accountFiles.length / PAGE_SIZE);
-  const paginatedFiles = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE;
-    return accountFiles.slice(start, start + PAGE_SIZE);
-  }, [accountFiles, currentPage]);
-
-  // 当数据变化时重置页码
-  useEffect(() => {
-    if (currentPage > totalPages && totalPages > 0) {
-      setCurrentPage(totalPages);
-    }
-  }, [accountFiles.length, totalPages, currentPage]);
-
-  const loadFiles = async () => {
+  const loadAccounts = useCallback(async (page: number = currentPage) => {
     setLoading(true);
     try {
-      const data = await getFiles();
-      setAccountFiles(data || []);
+      const data = await getAccountsPaged(page, PAGE_SIZE);
+      setAccounts(data.items || []);
+      setTotalPages(data.totalPages);
+      setTotalItems(data.total);
+      setCurrentPage(data.page);
     } catch (err) {
-      console.error("加载文件失败:", err);
-      toast.error("加载文件失败");
+      console.error("加载账户失败:", err);
+      toast.error("加载账户失败");
     } finally {
       setLoading(false);
     }
+  }, [currentPage]);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    loadAccounts(page);
   };
 
   useEffect(() => {
-    loadFiles();
+    loadAccounts(1);
   }, []);
 
   return (
@@ -70,7 +66,7 @@ export default function Files() {
           <Button
             variant="outline"
             size="sm"
-            onClick={loadFiles}
+            onClick={() => loadAccounts(currentPage)}
             disabled={loading}
             className="flex-1 sm:flex-none"
           >
@@ -103,7 +99,7 @@ export default function Files() {
             <CardTitle className="text-base sm:text-lg">上传文件</CardTitle>
           </CardHeader>
           <CardContent>
-            <FileUploader onUploadComplete={loadFiles} />
+            <FileUploader onUploadComplete={() => loadAccounts(currentPage)} />
           </CardContent>
         </Card>
       )}
@@ -112,27 +108,17 @@ export default function Files() {
         <div className="flex items-center justify-center h-64">
           <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
-      ) : accountFiles.length === 0 ? (
+      ) : totalItems === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <FolderOpen className="h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">暂无文件</p>
-            {!showUploader && (
-              <Button
-                variant="outline"
-                className="mt-4"
-                onClick={() => setShowUploader(true)}
-              >
-                <Upload className="mr-2 h-4 w-4" />
-                上传文件
-              </Button>
-            )}
+            <p className="text-muted-foreground">暂无账户</p>
           </CardContent>
         </Card>
       ) : (
         <>
           <div className="grid gap-3 sm:gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-            {paginatedFiles.map((account) => (
+            {accounts.map((account) => (
               <Card
                 key={account.id}
                 className="cursor-pointer hover:shadow-lg transition-shadow"
@@ -141,7 +127,7 @@ export default function Files() {
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
                     <FolderOpen className="h-4 w-4 sm:h-5 sm:w-5 text-primary flex-shrink-0" />
-                    <span className="truncate">{account.accountName}</span>
+                    <span className="truncate">{account.name}</span>
                     <ChevronRight className="h-4 w-4 ml-auto text-muted-foreground flex-shrink-0" />
                   </CardTitle>
                 </CardHeader>
@@ -149,18 +135,18 @@ export default function Files() {
                   <div className="space-y-2 text-xs sm:text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">存储占用</span>
-                      <span className="font-medium">{formatBytes(account.sizeBytes)}</span>
+                      <span className="font-medium">{formatBytes(account.usage.sizeBytes)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">配额</span>
-                      <span className="font-medium">{formatBytes(account.maxSize)}</span>
+                      <span className="font-medium">{formatBytes(account.quota.maxSizeBytes)}</span>
                     </div>
                     <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
                       <div
                         className="bg-primary h-full transition-all"
                         style={{
                           width: `${Math.min(
-                            (account.sizeBytes / account.maxSize) * 100,
+                            (account.usage.sizeBytes / account.quota.maxSizeBytes) * 100,
                             100
                           )}%`,
                         }}
@@ -174,8 +160,8 @@ export default function Files() {
           <Pagination
             currentPage={currentPage}
             totalPages={totalPages}
-            onPageChange={setCurrentPage}
-            totalItems={accountFiles.length}
+            onPageChange={handlePageChange}
+            totalItems={totalItems}
             pageSize={PAGE_SIZE}
           />
         </>

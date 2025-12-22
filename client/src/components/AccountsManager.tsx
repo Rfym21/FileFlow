@@ -1,9 +1,10 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Pagination } from "@/components/ui/pagination";
 import {
   Tooltip,
@@ -23,16 +24,26 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
-  getAccounts,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  getAccountsPaged,
   createAccount,
   updateAccount,
   deleteAccount,
   clearBucket,
+  deleteOldFiles,
   type AccountRequest,
   type AccountFull,
+  type DeleteOldFilesResult,
 } from "@/lib/api";
 import { formatBytes, formatNumber } from "@/lib/utils";
-import { Plus, Pencil, Trash2, RefreshCw, X, Eraser, Copy, Check } from "lucide-react";
+import { Plus, Pencil, Trash2, RefreshCw, X, Eraser, Copy, Check, Calendar } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 const PAGE_SIZE = 5;
@@ -65,31 +76,34 @@ export default function AccountsManager() {
   const [clearingId, setClearingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
 
-  // 分页计算
-  const totalPages = Math.ceil(accounts.length / PAGE_SIZE);
-  const paginatedAccounts = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE;
-    return accounts.slice(start, start + PAGE_SIZE);
-  }, [accounts, currentPage]);
+  // 多选相关状态
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showDeleteOldFilesDialog, setShowDeleteOldFilesDialog] = useState(false);
+  const [deleteBeforeDate, setDeleteBeforeDate] = useState("");
+  const [deletingOldFiles, setDeletingOldFiles] = useState(false);
+  const [deleteResults, setDeleteResults] = useState<DeleteOldFilesResult[] | null>(null);
 
-  // 当账户数据变化时重置页码
-  useEffect(() => {
-    if (currentPage > totalPages && totalPages > 0) {
-      setCurrentPage(totalPages);
-    }
-  }, [accounts.length, totalPages, currentPage]);
-
-  const loadAccounts = async () => {
+  const loadAccounts = useCallback(async (page: number = currentPage) => {
     setLoading(true);
     try {
-      const data = await getAccounts();
-      setAccounts(data || []);
+      const data = await getAccountsPaged(page, PAGE_SIZE);
+      setAccounts(data.items || []);
+      setTotalPages(data.totalPages);
+      setTotalItems(data.total);
+      setCurrentPage(data.page);
     } catch (err) {
       console.error("加载账户失败:", err);
     } finally {
       setLoading(false);
     }
+  }, [currentPage]);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    loadAccounts(page);
   };
 
   const handleSubmit = async () => {
@@ -117,7 +131,7 @@ export default function AccountsManager() {
         quota: result.quota,
       });
 
-      await loadAccounts();
+      await loadAccounts(currentPage);
       alert(editingId ? "账户更新成功！所有字段已刷新。" : "账户创建成功！请妥善保管显示的凭证信息。");
     } catch (err) {
       alert(err instanceof Error ? err.message : "操作失败");
@@ -142,7 +156,7 @@ export default function AccountsManager() {
         apiToken: account.apiToken,
         quota: account.quota,
       });
-      await loadAccounts();
+      await loadAccounts(currentPage);
     } catch (err) {
       alert(err instanceof Error ? err.message : "操作失败");
     } finally {
@@ -172,7 +186,7 @@ export default function AccountsManager() {
     if (!confirm("确定要删除此账户吗？")) return;
     try {
       await deleteAccount(id);
-      await loadAccounts();
+      await loadAccounts(currentPage);
     } catch (err) {
       alert(err instanceof Error ? err.message : "删除失败");
     }
@@ -182,7 +196,7 @@ export default function AccountsManager() {
     setClearingId(id);
     try {
       await clearBucket(id);
-      await loadAccounts();
+      await loadAccounts(currentPage);
     } catch (err) {
       alert(err instanceof Error ? err.message : "清空失败");
     } finally {
@@ -202,8 +216,61 @@ export default function AccountsManager() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  // 多选相关处理函数
+  const handleSelectAccount = (id: string, checked: boolean) => {
+    const newSelected = new Set(selectedIds);
+    if (checked) {
+      newSelected.add(id);
+    } else {
+      newSelected.delete(id);
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedIds(new Set(accounts.map((a) => a.id)));
+    } else {
+      setSelectedIds(new Set());
+    }
+  };
+
+  const handleOpenDeleteOldFilesDialog = () => {
+    if (selectedIds.size === 0) {
+      alert("请先选择至少一个账户");
+      return;
+    }
+    setDeleteBeforeDate("");
+    setDeleteResults(null);
+    setShowDeleteOldFilesDialog(true);
+  };
+
+  const handleDeleteOldFiles = async () => {
+    if (!deleteBeforeDate) {
+      alert("请选择日期");
+      return;
+    }
+
+    setDeletingOldFiles(true);
+    try {
+      const response = await deleteOldFiles(Array.from(selectedIds), deleteBeforeDate);
+      setDeleteResults(response.results);
+      await loadAccounts(currentPage);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "删除失败");
+    } finally {
+      setDeletingOldFiles(false);
+    }
+  };
+
+  const handleCloseDeleteOldFilesDialog = () => {
+    setShowDeleteOldFilesDialog(false);
+    setDeleteResults(null);
+    setDeleteBeforeDate("");
+  };
+
   useEffect(() => {
-    loadAccounts();
+    loadAccounts(1);
   }, []);
 
   if (loading) {
@@ -217,9 +284,43 @@ export default function AccountsManager() {
   return (
     <TooltipProvider>
       <div className="space-y-6">
-        <div className="flex justify-between">
-          <div className="text-sm text-muted-foreground">
-            共 {accounts.length} 个账户
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-4">
+            <div className="text-sm text-muted-foreground">
+              共 {totalItems} 个账户
+            </div>
+            {totalItems > 0 && (
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="select-all"
+                  checked={selectedIds.size === accounts.length && accounts.length > 0}
+                  onCheckedChange={(checked) => handleSelectAll(checked === true)}
+                />
+                <Label htmlFor="select-all" className="text-sm cursor-pointer">
+                  全选
+                </Label>
+              </div>
+            )}
+            {selectedIds.size > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">
+                  已选 {selectedIds.size} 个
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleOpenDeleteOldFilesDialog}
+                    >
+                      <Calendar className="mr-2 h-4 w-4" />
+                      删除旧文件
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>删除选中账户中指定日期之前的文件</TooltipContent>
+                </Tooltip>
+              </div>
+            )}
           </div>
           <Button onClick={() => setShowForm(true)}>
             <Plus className="mr-2 h-4 w-4" />
@@ -351,12 +452,16 @@ export default function AccountsManager() {
       )}
 
       <div className="space-y-4">
-        {paginatedAccounts.map((account) => (
+        {accounts.map((account) => (
           <Card key={account.id} className={!account.isActive ? "opacity-50 border-muted" : ""}>
             <CardContent className="p-4 space-y-3">
-              {/* 第一行：名称 + 操作按钮 */}
+              {/* 第一行：复选框 + 名称 + 操作按钮 */}
               <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-2 min-w-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <Checkbox
+                    checked={selectedIds.has(account.id)}
+                    onCheckedChange={(checked) => handleSelectAccount(account.id, checked === true)}
+                  />
                   <span className="font-medium truncate">{account.name}</span>
                   {!account.isActive && (
                     <Badge variant="destructive" className="text-xs shrink-0">已禁用</Badge>
@@ -475,11 +580,105 @@ export default function AccountsManager() {
         <Pagination
           currentPage={currentPage}
           totalPages={totalPages}
-          onPageChange={setCurrentPage}
-          totalItems={accounts.length}
+          onPageChange={handlePageChange}
+          totalItems={totalItems}
           pageSize={PAGE_SIZE}
         />
       </div>
+
+      {/* 删除旧文件对话框 */}
+      <Dialog open={showDeleteOldFilesDialog} onOpenChange={setShowDeleteOldFilesDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>删除旧文件</DialogTitle>
+            <DialogDescription>
+              删除选中账户中指定日期之前的所有文件，此操作不可恢复。
+            </DialogDescription>
+          </DialogHeader>
+
+          {!deleteResults ? (
+            <>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label>已选择 {selectedIds.size} 个账户</Label>
+                  <div className="text-sm text-muted-foreground max-h-24 overflow-y-auto">
+                    {accounts
+                      .filter((a) => selectedIds.has(a.id))
+                      .map((a) => a.name)
+                      .join("、")}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="before-date">删除此日期之前的文件</Label>
+                  <Input
+                    id="before-date"
+                    type="date"
+                    value={deleteBeforeDate}
+                    onChange={(e) => setDeleteBeforeDate(e.target.value)}
+                    max={new Date().toISOString().split("T")[0]}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={handleCloseDeleteOldFilesDialog}>
+                  取消
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={handleDeleteOldFiles}
+                  disabled={deletingOldFiles || !deleteBeforeDate}
+                >
+                  {deletingOldFiles ? (
+                    <>
+                      <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                      删除中...
+                    </>
+                  ) : (
+                    "确认删除"
+                  )}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label>删除结果</Label>
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {deleteResults.map((result) => (
+                      <div
+                        key={result.accountId}
+                        className={`p-3 rounded-md text-sm ${
+                          result.error
+                            ? "bg-destructive/10 text-destructive"
+                            : "bg-muted"
+                        }`}
+                      >
+                        <div className="font-medium">{result.accountName}</div>
+                        {result.error ? (
+                          <div className="text-xs mt-1">错误: {result.error}</div>
+                        ) : (
+                          <div className="text-xs mt-1 text-muted-foreground">
+                            已删除 {result.deletedCount} 个文件
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-sm text-muted-foreground pt-2 border-t">
+                    共删除{" "}
+                    {deleteResults.reduce((sum, r) => sum + r.deletedCount, 0)}{" "}
+                    个文件
+                  </div>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button onClick={handleCloseDeleteOldFilesDialog}>关闭</Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
       </div>
     </TooltipProvider>
   );
