@@ -99,6 +99,17 @@ export interface Usage {
   lastSyncAt: string;
 }
 
+/**
+ * 账户权限配置
+ */
+export interface AccountPermissions {
+  s3: boolean;
+  webdav: boolean;
+  autoUpload: boolean;
+  apiUpload: boolean;
+  clientUpload: boolean;
+}
+
 export interface Account {
   id: string;
   name: string;
@@ -111,6 +122,7 @@ export interface Account {
   hasApiToken: boolean;
   quota: Quota;
   usage: Usage;
+  permissions: AccountPermissions;
   usagePercent: number;
   isOverQuota: boolean;
   isOverOps: boolean;
@@ -137,6 +149,7 @@ export interface AccountFull {
   hasApiToken?: boolean; // 兼容性字段，可选
   quota: Quota;
   usage: Usage;
+  permissions: AccountPermissions;
   usagePercent: number;
   isOverQuota: boolean;
   isOverOps: boolean;
@@ -157,6 +170,7 @@ export interface AccountRequest {
   publicDomain: string;
   apiToken: string;
   quota: Quota;
+  permissions: AccountPermissions;
 }
 
 // ==================== 分页相关类型 ====================

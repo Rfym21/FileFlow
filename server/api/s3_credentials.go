@@ -36,6 +36,18 @@ func CreateS3Credential(c *gin.Context) {
 		return
 	}
 
+	// 验证账户是否存在且具有 S3 权限
+	acc, err := store.GetAccountByID(req.AccountID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "账户不存在"})
+		return
+	}
+
+	if !acc.CanS3() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "该账户未启用 S3 权限，无法创建 S3 凭证"})
+		return
+	}
+
 	// 验证权限列表
 	validPerms := map[string]bool{"read": true, "write": true, "delete": true}
 	for _, perm := range req.Permissions {

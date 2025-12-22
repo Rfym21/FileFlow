@@ -50,6 +50,13 @@ type MongoAccount struct {
 		ClassBOps  int64  `bson:"classBOps"`
 		LastSyncAt string `bson:"lastSyncAt"`
 	} `bson:"usage"`
+	Permissions struct {
+		S3           bool `bson:"s3"`
+		WebDAV       bool `bson:"webdav"`
+		AutoUpload   bool `bson:"autoUpload"`
+		APIUpload    bool `bson:"apiUpload"`
+		ClientUpload bool `bson:"clientUpload"`
+	} `bson:"permissions"`
 	CreatedAt string `bson:"createdAt"`
 	UpdatedAt string `bson:"updatedAt"`
 }
@@ -199,8 +206,20 @@ func (b *MongoBackend) Load() (*Data, error) {
 				ClassBOps:  doc.Usage.ClassBOps,
 				LastSyncAt: doc.Usage.LastSyncAt,
 			},
+			Permissions: AccountPermissions{
+				S3:           doc.Permissions.S3,
+				WebDAV:       doc.Permissions.WebDAV,
+				AutoUpload:   doc.Permissions.AutoUpload,
+				APIUpload:    doc.Permissions.APIUpload,
+				ClientUpload: doc.Permissions.ClientUpload,
+			},
 			CreatedAt: doc.CreatedAt,
 			UpdatedAt: doc.UpdatedAt,
+		}
+		// 对于旧数据，如果权限全为 false，则设置默认权限
+		if !acc.Permissions.S3 && !acc.Permissions.WebDAV && !acc.Permissions.AutoUpload &&
+			!acc.Permissions.APIUpload && !acc.Permissions.ClientUpload {
+			acc.Permissions = DefaultAccountPermissions()
 		}
 		data.Accounts = append(data.Accounts, acc)
 	}
@@ -376,6 +395,19 @@ func (b *MongoBackend) Save(data *Data) error {
 						ClassBOps:  acc.Usage.ClassBOps,
 						LastSyncAt: acc.Usage.LastSyncAt,
 					},
+					Permissions: struct {
+						S3           bool `bson:"s3"`
+						WebDAV       bool `bson:"webdav"`
+						AutoUpload   bool `bson:"autoUpload"`
+						APIUpload    bool `bson:"apiUpload"`
+						ClientUpload bool `bson:"clientUpload"`
+					}{
+						S3:           acc.Permissions.S3,
+						WebDAV:       acc.Permissions.WebDAV,
+						AutoUpload:   acc.Permissions.AutoUpload,
+						APIUpload:    acc.Permissions.APIUpload,
+						ClientUpload: acc.Permissions.ClientUpload,
+					},
 					CreatedAt: acc.CreatedAt,
 					UpdatedAt: acc.UpdatedAt,
 				}
@@ -531,6 +563,19 @@ func (b *MongoBackend) saveWithoutTransaction(data *Data) error {
 					ClassAOps:  acc.Usage.ClassAOps,
 					ClassBOps:  acc.Usage.ClassBOps,
 					LastSyncAt: acc.Usage.LastSyncAt,
+				},
+				Permissions: struct {
+					S3           bool `bson:"s3"`
+					WebDAV       bool `bson:"webdav"`
+					AutoUpload   bool `bson:"autoUpload"`
+					APIUpload    bool `bson:"apiUpload"`
+					ClientUpload bool `bson:"clientUpload"`
+				}{
+					S3:           acc.Permissions.S3,
+					WebDAV:       acc.Permissions.WebDAV,
+					AutoUpload:   acc.Permissions.AutoUpload,
+					APIUpload:    acc.Permissions.APIUpload,
+					ClientUpload: acc.Permissions.ClientUpload,
 				},
 				CreatedAt: acc.CreatedAt,
 				UpdatedAt: acc.UpdatedAt,

@@ -13,61 +13,64 @@ import (
 
 // AccountRequest 创建/更新账户请求
 type AccountRequest struct {
-	Name            string      `json:"name" binding:"required"`
-	IsActive        bool        `json:"isActive"`
-	Description     string      `json:"description"`
-	AccountID       string      `json:"accountId" binding:"required"`
-	AccessKeyId     string      `json:"accessKeyId"`     // 更新时可选，空则保留原值
-	SecretAccessKey string      `json:"secretAccessKey"` // 更新时可选，空则保留原值
-	BucketName      string      `json:"bucketName" binding:"required"`
-	Endpoint        string      `json:"endpoint" binding:"required"`
-	PublicDomain    string      `json:"publicDomain" binding:"required"`
-	APIToken        string      `json:"apiToken"`
-	Quota           store.Quota `json:"quota" binding:"required"`
+	Name            string                   `json:"name" binding:"required"`
+	IsActive        bool                     `json:"isActive"`
+	Description     string                   `json:"description"`
+	AccountID       string                   `json:"accountId" binding:"required"`
+	AccessKeyId     string                   `json:"accessKeyId"`     // 更新时可选，空则保留原值
+	SecretAccessKey string                   `json:"secretAccessKey"` // 更新时可选，空则保留原值
+	BucketName      string                   `json:"bucketName" binding:"required"`
+	Endpoint        string                   `json:"endpoint" binding:"required"`
+	PublicDomain    string                   `json:"publicDomain" binding:"required"`
+	APIToken        string                   `json:"apiToken"`
+	Quota           store.Quota              `json:"quota" binding:"required"`
+	Permissions     store.AccountPermissions `json:"permissions"`
 }
 
 // AccountResponse 账户响应（隐藏敏感字段）
 type AccountResponse struct {
-	ID           string      `json:"id"`
-	Name         string      `json:"name"`
-	IsActive     bool        `json:"isActive"`
-	Description  string      `json:"description"`
-	AccountID    string      `json:"accountId"`
-	BucketName   string      `json:"bucketName"`
-	Endpoint     string      `json:"endpoint"`
-	PublicDomain string      `json:"publicDomain"`
-	HasAPIToken  bool        `json:"hasApiToken"`
-	Quota        store.Quota `json:"quota"`
-	Usage        store.Usage `json:"usage"`
-	UsagePercent float64     `json:"usagePercent"`
-	IsOverQuota  bool        `json:"isOverQuota"`
-	IsOverOps    bool        `json:"isOverOps"`
-	IsAvailable  bool        `json:"isAvailable"`
-	CreatedAt    string      `json:"createdAt"`
-	UpdatedAt    string      `json:"updatedAt"`
+	ID           string                   `json:"id"`
+	Name         string                   `json:"name"`
+	IsActive     bool                     `json:"isActive"`
+	Description  string                   `json:"description"`
+	AccountID    string                   `json:"accountId"`
+	BucketName   string                   `json:"bucketName"`
+	Endpoint     string                   `json:"endpoint"`
+	PublicDomain string                   `json:"publicDomain"`
+	HasAPIToken  bool                     `json:"hasApiToken"`
+	Quota        store.Quota              `json:"quota"`
+	Usage        store.Usage              `json:"usage"`
+	Permissions  store.AccountPermissions `json:"permissions"`
+	UsagePercent float64                  `json:"usagePercent"`
+	IsOverQuota  bool                     `json:"isOverQuota"`
+	IsOverOps    bool                     `json:"isOverOps"`
+	IsAvailable  bool                     `json:"isAvailable"`
+	CreatedAt    string                   `json:"createdAt"`
+	UpdatedAt    string                   `json:"updatedAt"`
 }
 
 // AccountFullResponse 账户完整响应（包含敏感字段，用于编辑）
 type AccountFullResponse struct {
-	ID              string      `json:"id"`
-	Name            string      `json:"name"`
-	IsActive        bool        `json:"isActive"`
-	Description     string      `json:"description"`
-	AccountID       string      `json:"accountId"`
-	AccessKeyId     string      `json:"accessKeyId"`
-	SecretAccessKey string      `json:"secretAccessKey"`
-	BucketName      string      `json:"bucketName"`
-	Endpoint        string      `json:"endpoint"`
-	PublicDomain    string      `json:"publicDomain"`
-	APIToken        string      `json:"apiToken"`
-	Quota           store.Quota `json:"quota"`
-	Usage           store.Usage `json:"usage"`
-	UsagePercent    float64     `json:"usagePercent"`
-	IsOverQuota     bool        `json:"isOverQuota"`
-	IsOverOps       bool        `json:"isOverOps"`
-	IsAvailable     bool        `json:"isAvailable"`
-	CreatedAt       string      `json:"createdAt"`
-	UpdatedAt       string      `json:"updatedAt"`
+	ID              string                   `json:"id"`
+	Name            string                   `json:"name"`
+	IsActive        bool                     `json:"isActive"`
+	Description     string                   `json:"description"`
+	AccountID       string                   `json:"accountId"`
+	AccessKeyId     string                   `json:"accessKeyId"`
+	SecretAccessKey string                   `json:"secretAccessKey"`
+	BucketName      string                   `json:"bucketName"`
+	Endpoint        string                   `json:"endpoint"`
+	PublicDomain    string                   `json:"publicDomain"`
+	APIToken        string                   `json:"apiToken"`
+	Quota           store.Quota              `json:"quota"`
+	Usage           store.Usage              `json:"usage"`
+	Permissions     store.AccountPermissions `json:"permissions"`
+	UsagePercent    float64                  `json:"usagePercent"`
+	IsOverQuota     bool                     `json:"isOverQuota"`
+	IsOverOps       bool                     `json:"isOverOps"`
+	IsAvailable     bool                     `json:"isAvailable"`
+	CreatedAt       string                   `json:"createdAt"`
+	UpdatedAt       string                   `json:"updatedAt"`
 }
 
 // toAccountResponse 转换为响应对象
@@ -84,6 +87,7 @@ func toAccountResponse(acc *store.Account) AccountResponse {
 		HasAPIToken:  acc.APIToken != "",
 		Quota:        acc.Quota,
 		Usage:        acc.Usage,
+		Permissions:  acc.Permissions,
 		UsagePercent: acc.GetUsagePercent(),
 		IsOverQuota:  acc.IsOverQuota(),
 		IsOverOps:    acc.IsOverOps(),
@@ -109,6 +113,7 @@ func toAccountFullResponse(acc *store.Account) AccountFullResponse {
 		APIToken:        acc.APIToken,
 		Quota:           acc.Quota,
 		Usage:           acc.Usage,
+		Permissions:     acc.Permissions,
 		UsagePercent:    acc.GetUsagePercent(),
 		IsOverQuota:     acc.IsOverQuota(),
 		IsOverOps:       acc.IsOverOps(),
@@ -188,6 +193,13 @@ func CreateAccount(c *gin.Context) {
 		return
 	}
 
+	// 如果权限未设置（全为false），使用默认权限
+	permissions := req.Permissions
+	if !permissions.S3 && !permissions.WebDAV && !permissions.AutoUpload &&
+		!permissions.APIUpload && !permissions.ClientUpload {
+		permissions = store.DefaultAccountPermissions()
+	}
+
 	acc := &store.Account{
 		Name:            req.Name,
 		IsActive:        req.IsActive,
@@ -200,6 +212,7 @@ func CreateAccount(c *gin.Context) {
 		PublicDomain:    req.PublicDomain,
 		APIToken:        req.APIToken,
 		Quota:           req.Quota,
+		Permissions:     permissions,
 	}
 
 	if err := store.CreateAccount(acc); err != nil {
@@ -237,6 +250,7 @@ func UpdateAccount(c *gin.Context) {
 	existing.Endpoint = req.Endpoint
 	existing.PublicDomain = req.PublicDomain
 	existing.Quota = req.Quota
+	existing.Permissions = req.Permissions
 
 	// 敏感字段：只有非空时才更新
 	if req.AccessKeyId != "" {

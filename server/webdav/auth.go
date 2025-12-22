@@ -72,9 +72,23 @@ func AuthMiddleware() func(http.Handler) http.Handler {
 
 			// 获取关联的账户
 			acc, err := store.GetAccountByID(cred.AccountID)
-			if err != nil || !acc.IsActive {
+			if err != nil {
 				w.Header().Set("WWW-Authenticate", `Basic realm="WebDAV"`)
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+
+			// 检查账户是否启用
+			if !acc.IsActive {
+				w.Header().Set("WWW-Authenticate", `Basic realm="WebDAV"`)
+				http.Error(w, "Account is disabled", http.StatusForbidden)
+				return
+			}
+
+			// 检查账户是否具有 WebDAV 访问权限
+			if !acc.CanWebDAV() {
+				w.Header().Set("WWW-Authenticate", `Basic realm="WebDAV"`)
+				http.Error(w, "Account does not have WebDAV permission", http.StatusForbidden)
 				return
 			}
 

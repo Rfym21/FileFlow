@@ -96,11 +96,11 @@ func Upload(c *gin.Context) {
 
 	var result *service.UploadResult
 	if accountID != "" {
-		// 上传到指定账户
-		result, err = service.UploadToAccount(c.Request.Context(), accountID, key, file, contentType)
+		// 上传到指定账户（前端上传检查 client_upload 权限）
+		result, err = service.UploadToAccountForClient(c.Request.Context(), accountID, key, file, contentType)
 	} else {
-		// 智能上传（自动选择账户）
-		result, err = service.SmartUpload(c.Request.Context(), key, file, header.Size, contentType)
+		// 智能上传（自动选择具有 client_upload 权限的账户）
+		result, err = service.SmartUploadForClient(c.Request.Context(), key, file, header.Size, contentType)
 	}
 
 	if err != nil {

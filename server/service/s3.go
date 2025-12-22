@@ -83,10 +83,11 @@ func getS3Client(acc *store.Account) *s3.Client {
 }
 
 // SmartUpload 智能上传文件（自动选择可用账户，失败自动重试其他账户）
+// 使用具有 auto_upload 权限的账户
 func SmartUpload(ctx context.Context, key string, body io.Reader, size int64, contentType string) (*UploadResult, error) {
-	accounts := store.GetAvailableAccounts()
+	accounts := store.GetAvailableAccountsForAutoUpload()
 	if len(accounts) == 0 {
-		return nil, fmt.Errorf("没有可用的存储账户")
+		return nil, fmt.Errorf("没有可用的存储账户（需要 auto_upload 权限）")
 	}
 
 	// 按使用率排序，优先使用使用率低的账户
@@ -114,6 +115,7 @@ func SmartUpload(ctx context.Context, key string, body io.Reader, size int64, co
 }
 
 // UploadToAccount 上传文件到指定账户
+// 检查账户是否具有 api_upload 权限
 func UploadToAccount(ctx context.Context, accountID string, key string, body io.Reader, contentType string) (*UploadResult, error) {
 	acc, err := store.GetAccountByID(accountID)
 	if err != nil {
@@ -122,6 +124,66 @@ func UploadToAccount(ctx context.Context, accountID string, key string, body io.
 
 	if !acc.IsActive {
 		return nil, fmt.Errorf("账户已停用")
+	}
+
+	if !acc.CanAPIUpload() {
+		return nil, fmt.Errorf("账户没有 API 上传权限")
+	}
+
+	bodyBytes, err := io.ReadAll(body)
+	if err != nil {
+		return nil, fmt.Errorf("读取文件内容失败: %w", err)
+	}
+
+	return doUpload(ctx, acc, key, bodyBytes, contentType)
+}
+
+// SmartUploadForClient 前端智能上传文件（自动选择可用账户，失败自动重试其他账户）
+// 使用具有 client_upload 和 auto_upload 权限的账户
+func SmartUploadForClient(ctx context.Context, key string, body io.Reader, size int64, contentType string) (*UploadResult, error) {
+	accounts := store.GetAvailableAccountsForClientUpload()
+	if len(accounts) == 0 {
+		return nil, fmt.Errorf("没有可用的存储账户（需要 client_upload 权限）")
+	}
+
+	// 按使用率排序，优先使用使用率低的账户
+	sort.Slice(accounts, func(i, j int) bool {
+		return accounts[i].GetUsagePercent() < accounts[j].GetUsagePercent()
+	})
+
+	// 需要将 body 读取到内存，以便重试
+	bodyBytes, err := io.ReadAll(body)
+	if err != nil {
+		return nil, fmt.Errorf("读取文件内容失败: %w", err)
+	}
+
+	var lastErr error
+	for _, acc := range accounts {
+		result, err := doUpload(ctx, &acc, key, bodyBytes, contentType)
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+		log.Printf("上传到账户 %s 失败: %v，尝试下一个账户", acc.Name, err)
+	}
+
+	return nil, fmt.Errorf("所有账户上传均失败: %w", lastErr)
+}
+
+// UploadToAccountForClient 前端上传文件到指定账户
+// 检查账户是否具有 client_upload 权限
+func UploadToAccountForClient(ctx context.Context, accountID string, key string, body io.Reader, contentType string) (*UploadResult, error) {
+	acc, err := store.GetAccountByID(accountID)
+	if err != nil {
+		return nil, fmt.Errorf("账户不存在: %w", err)
+	}
+
+	if !acc.IsActive {
+		return nil, fmt.Errorf("账户已停用")
+	}
+
+	if !acc.CanClientUpload() {
+		return nil, fmt.Errorf("账户没有前端上传权限")
 	}
 
 	bodyBytes, err := io.ReadAll(body)

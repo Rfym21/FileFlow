@@ -203,6 +203,34 @@ func GetAvailableAccounts() []Account {
 	return result
 }
 
+// GetAvailableAccountsForAutoUpload 获取所有可用于自动上传的账户
+func GetAvailableAccountsForAutoUpload() []Account {
+	dataLock.RLock()
+	defer dataLock.RUnlock()
+
+	var result []Account
+	for _, acc := range data.Accounts {
+		if acc.IsAvailableForAutoUpload() {
+			result = append(result, acc)
+		}
+	}
+	return result
+}
+
+// GetAvailableAccountsForClientUpload 获取所有可用于前端上传的账户
+func GetAvailableAccountsForClientUpload() []Account {
+	dataLock.RLock()
+	defer dataLock.RUnlock()
+
+	var result []Account
+	for _, acc := range data.Accounts {
+		if acc.IsAvailableForClientUpload() {
+			result = append(result, acc)
+		}
+	}
+	return result
+}
+
 // GetAccountByID 根据 ID 获取账户
 func GetAccountByID(id string) (*Account, error) {
 	dataLock.RLock()

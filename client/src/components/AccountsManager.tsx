@@ -63,6 +63,13 @@ const defaultAccountForm: AccountRequest = {
     maxSizeBytes: 10 * 1024 * 1024 * 1024,
     maxClassAOps: 1000000,
   },
+  permissions: {
+    s3: true,
+    webdav: true,
+    autoUpload: true,
+    apiUpload: true,
+    clientUpload: true,
+  },
 };
 
 export default function AccountsManager() {
@@ -129,6 +136,7 @@ export default function AccountsManager() {
         publicDomain: result.publicDomain,
         apiToken: result.apiToken,
         quota: result.quota,
+        permissions: result.permissions,
       });
 
       await loadAccounts(currentPage);
@@ -155,6 +163,7 @@ export default function AccountsManager() {
         publicDomain: account.publicDomain,
         apiToken: account.apiToken,
         quota: account.quota,
+        permissions: account.permissions,
       });
       await loadAccounts(currentPage);
     } catch (err) {
@@ -178,6 +187,7 @@ export default function AccountsManager() {
       publicDomain: account.publicDomain,
       apiToken: account.apiToken,
       quota: account.quota,
+      permissions: account.permissions,
     });
     setShowForm(true);
   };
@@ -439,6 +449,80 @@ export default function AccountsManager() {
                 />
               </div>
             </div>
+            {/* 权限设置 */}
+            <div className="space-y-3">
+              <Label>权限设置</Label>
+              <div className="grid gap-3 md:grid-cols-5">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="perm-s3"
+                    checked={form.permissions?.s3 ?? true}
+                    onCheckedChange={(checked) =>
+                      setForm({
+                        ...form,
+                        permissions: { ...form.permissions, s3: checked === true },
+                      })
+                    }
+                  />
+                  <Label htmlFor="perm-s3" className="text-sm cursor-pointer">S3 API</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="perm-webdav"
+                    checked={form.permissions?.webdav ?? true}
+                    onCheckedChange={(checked) =>
+                      setForm({
+                        ...form,
+                        permissions: { ...form.permissions, webdav: checked === true },
+                      })
+                    }
+                  />
+                  <Label htmlFor="perm-webdav" className="text-sm cursor-pointer">WebDAV</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="perm-auto-upload"
+                    checked={form.permissions?.autoUpload ?? true}
+                    onCheckedChange={(checked) =>
+                      setForm({
+                        ...form,
+                        permissions: { ...form.permissions, autoUpload: checked === true },
+                      })
+                    }
+                  />
+                  <Label htmlFor="perm-auto-upload" className="text-sm cursor-pointer">自动上传</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="perm-api-upload"
+                    checked={form.permissions?.apiUpload ?? true}
+                    onCheckedChange={(checked) =>
+                      setForm({
+                        ...form,
+                        permissions: { ...form.permissions, apiUpload: checked === true },
+                      })
+                    }
+                  />
+                  <Label htmlFor="perm-api-upload" className="text-sm cursor-pointer">API 上传</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="perm-client-upload"
+                    checked={form.permissions?.clientUpload ?? true}
+                    onCheckedChange={(checked) =>
+                      setForm({
+                        ...form,
+                        permissions: { ...form.permissions, clientUpload: checked === true },
+                      })
+                    }
+                  />
+                  <Label htmlFor="perm-client-upload" className="text-sm cursor-pointer">前端上传</Label>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                控制此账户可被使用的方式。取消勾选将禁止相应的访问方式。
+              </p>
+            </div>
             <div className="flex gap-2">
               <Button onClick={handleSubmit} disabled={submitting}>
                 {submitting ? "保存中..." : "保存"}
@@ -573,6 +657,28 @@ export default function AccountsManager() {
                 {formatBytes(account.quota.maxSizeBytes)} | 写入:{" "}
                 {formatNumber(account.usage.classAOps)} /{" "}
                 {formatNumber(account.quota.maxClassAOps)}
+              </div>
+              {/* 第五行：权限标签 */}
+              <div className="flex flex-wrap gap-1.5">
+                {account.permissions?.s3 && (
+                  <Badge variant="secondary" className="text-xs">S3</Badge>
+                )}
+                {account.permissions?.webdav && (
+                  <Badge variant="secondary" className="text-xs">WebDAV</Badge>
+                )}
+                {account.permissions?.autoUpload && (
+                  <Badge variant="secondary" className="text-xs">自动上传</Badge>
+                )}
+                {account.permissions?.apiUpload && (
+                  <Badge variant="secondary" className="text-xs">API上传</Badge>
+                )}
+                {account.permissions?.clientUpload && (
+                  <Badge variant="secondary" className="text-xs">前端上传</Badge>
+                )}
+                {account.permissions && !account.permissions.s3 && !account.permissions.webdav &&
+                 !account.permissions.autoUpload && !account.permissions.apiUpload && !account.permissions.clientUpload && (
+                  <Badge variant="outline" className="text-xs text-muted-foreground">无权限</Badge>
+                )}
               </div>
             </CardContent>
           </Card>

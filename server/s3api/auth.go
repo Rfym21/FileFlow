@@ -93,6 +93,19 @@ func S3AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		// 检查账户是否启用且具有 S3 访问权限
+		if !acc.IsActive {
+			WriteS3ErrorWithMessage(c, ErrAccessDenied, "account is disabled")
+			c.Abort()
+			return
+		}
+
+		if !acc.CanS3() {
+			WriteS3ErrorWithMessage(c, ErrAccessDenied, "account does not have S3 permission")
+			c.Abort()
+			return
+		}
+
 		// 将凭证和账户信息存入上下文
 		c.Set(ContextKeyS3Credential, cred)
 		c.Set(ContextKeyS3Account, acc)

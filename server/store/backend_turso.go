@@ -93,6 +93,11 @@ func (b *TursoBackend) createTables() error {
 			usage_class_a_ops INTEGER DEFAULT 0,
 			usage_class_b_ops INTEGER DEFAULT 0,
 			usage_last_sync_at TEXT,
+			perm_s3 INTEGER DEFAULT 1,
+			perm_webdav INTEGER DEFAULT 1,
+			perm_auto_upload INTEGER DEFAULT 1,
+			perm_api_upload INTEGER DEFAULT 1,
+			perm_client_upload INTEGER DEFAULT 1,
 			created_at TEXT,
 			updated_at TEXT
 		)
@@ -100,6 +105,9 @@ func (b *TursoBackend) createTables() error {
 	if err != nil {
 		return err
 	}
+
+	// 迁移：为已有表添加权限字段
+	b.migrateAccountPermissions()
 
 	// 创建 tokens 表
 	_, err = b.db.Exec(`
@@ -176,6 +184,8 @@ func (b *TursoBackend) Load() (*Data, error) {
 			secret_access_key, bucket_name, endpoint, public_domain, api_token,
 			quota_max_size_bytes, quota_max_class_a_ops,
 			usage_size_bytes, usage_class_a_ops, usage_class_b_ops, usage_last_sync_at,
+			COALESCE(perm_s3, 1), COALESCE(perm_webdav, 1), COALESCE(perm_auto_upload, 1),
+			COALESCE(perm_api_upload, 1), COALESCE(perm_client_upload, 1),
 			created_at, updated_at
 		FROM accounts
 	`)
@@ -187,6 +197,7 @@ func (b *TursoBackend) Load() (*Data, error) {
 	for rows.Next() {
 		var acc Account
 		var isActive int
+		var permS3, permWebDAV, permAutoUpload, permAPIUpload, permClientUpload int
 		var description, accountID, accessKeyID, secretAccessKey sql.NullString
 		var bucketName, endpoint, publicDomain, apiToken sql.NullString
 		var usageLastSyncAt, createdAt, updatedAt sql.NullString
@@ -196,6 +207,7 @@ func (b *TursoBackend) Load() (*Data, error) {
 			&secretAccessKey, &bucketName, &endpoint, &publicDomain, &apiToken,
 			&acc.Quota.MaxSizeBytes, &acc.Quota.MaxClassAOps,
 			&acc.Usage.SizeBytes, &acc.Usage.ClassAOps, &acc.Usage.ClassBOps, &usageLastSyncAt,
+			&permS3, &permWebDAV, &permAutoUpload, &permAPIUpload, &permClientUpload,
 			&createdAt, &updatedAt,
 		)
 		if err != nil {
@@ -212,6 +224,11 @@ func (b *TursoBackend) Load() (*Data, error) {
 		acc.PublicDomain = publicDomain.String
 		acc.APIToken = apiToken.String
 		acc.Usage.LastSyncAt = usageLastSyncAt.String
+		acc.Permissions.S3 = permS3 == 1
+		acc.Permissions.WebDAV = permWebDAV == 1
+		acc.Permissions.AutoUpload = permAutoUpload == 1
+		acc.Permissions.APIUpload = permAPIUpload == 1
+		acc.Permissions.ClientUpload = permClientUpload == 1
 		acc.CreatedAt = createdAt.String
 		acc.UpdatedAt = updatedAt.String
 
@@ -368,6 +385,22 @@ func (b *TursoBackend) Save(data *Data) error {
 		if acc.IsActive {
 			isActive = 1
 		}
+		permS3, permWebDAV, permAutoUpload, permAPIUpload, permClientUpload := 0, 0, 0, 0, 0
+		if acc.Permissions.S3 {
+			permS3 = 1
+		}
+		if acc.Permissions.WebDAV {
+			permWebDAV = 1
+		}
+		if acc.Permissions.AutoUpload {
+			permAutoUpload = 1
+		}
+		if acc.Permissions.APIUpload {
+			permAPIUpload = 1
+		}
+		if acc.Permissions.ClientUpload {
+			permClientUpload = 1
+		}
 
 		_, err := tx.Exec(`
 			INSERT INTO accounts (
@@ -375,13 +408,15 @@ func (b *TursoBackend) Save(data *Data) error {
 				secret_access_key, bucket_name, endpoint, public_domain, api_token,
 				quota_max_size_bytes, quota_max_class_a_ops,
 				usage_size_bytes, usage_class_a_ops, usage_class_b_ops, usage_last_sync_at,
+				perm_s3, perm_webdav, perm_auto_upload, perm_api_upload, perm_client_upload,
 				created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`,
 			acc.ID, acc.Name, isActive, acc.Description, acc.AccountID, acc.AccessKeyId,
 			acc.SecretAccessKey, acc.BucketName, acc.Endpoint, acc.PublicDomain, acc.APIToken,
 			acc.Quota.MaxSizeBytes, acc.Quota.MaxClassAOps,
 			acc.Usage.SizeBytes, acc.Usage.ClassAOps, acc.Usage.ClassBOps, acc.Usage.LastSyncAt,
+			permS3, permWebDAV, permAutoUpload, permAPIUpload, permClientUpload,
 			acc.CreatedAt, acc.UpdatedAt,
 		)
 		if err != nil {
@@ -488,4 +523,19 @@ func (b *TursoBackend) Close() error {
 		return b.db.Close()
 	}
 	return nil
+}
+
+// migrateAccountPermissions 迁移账户权限字段
+func (b *TursoBackend) migrateAccountPermissions() {
+	// 尝试添加权限字段，如果已存在则忽略错误
+	columns := []string{
+		"perm_s3 INTEGER DEFAULT 1",
+		"perm_webdav INTEGER DEFAULT 1",
+		"perm_auto_upload INTEGER DEFAULT 1",
+		"perm_api_upload INTEGER DEFAULT 1",
+		"perm_client_upload INTEGER DEFAULT 1",
+	}
+	for _, col := range columns {
+		b.db.Exec("ALTER TABLE accounts ADD COLUMN " + col)
+	}
 }

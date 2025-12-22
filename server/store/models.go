@@ -2,23 +2,44 @@ package store
 
 import "time"
 
+// AccountPermissions 账户权限配置
+type AccountPermissions struct {
+	S3           bool `json:"s3"`           // 是否允许 S3 API 访问
+	WebDAV       bool `json:"webdav"`       // 是否允许 WebDAV 访问
+	AutoUpload   bool `json:"autoUpload"`   // 是否允许作为自动上传目标（SmartUpload）
+	APIUpload    bool `json:"apiUpload"`    // 是否允许通过 API 上传
+	ClientUpload bool `json:"clientUpload"` // 是否允许前端客户端上传
+}
+
+// DefaultAccountPermissions 返回默认权限配置（全部启用）
+func DefaultAccountPermissions() AccountPermissions {
+	return AccountPermissions{
+		S3:           true,
+		WebDAV:       true,
+		AutoUpload:   true,
+		APIUpload:    true,
+		ClientUpload: true,
+	}
+}
+
 // Account R2 账户
 type Account struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	IsActive        bool   `json:"isActive"`
-	Description     string `json:"description"`
-	AccountID       string `json:"accountId"`       // Cloudflare Account ID
-	AccessKeyId     string `json:"accessKeyId"`     // R2 Access Key ID
-	SecretAccessKey string `json:"secretAccessKey"` // R2 Secret Access Key
-	BucketName      string `json:"bucketName"`
-	Endpoint        string `json:"endpoint"`     // R2 Endpoint URL
-	PublicDomain    string `json:"publicDomain"` // 公开访问域名
-	APIToken        string `json:"apiToken"`     // Cloudflare API Token (用于 GraphQL 查询)
-	Quota           Quota  `json:"quota"`
-	Usage           Usage  `json:"usage"`
-	CreatedAt       string `json:"createdAt"`
-	UpdatedAt       string `json:"updatedAt"`
+	ID              string             `json:"id"`
+	Name            string             `json:"name"`
+	IsActive        bool               `json:"isActive"`
+	Description     string             `json:"description"`
+	AccountID       string             `json:"accountId"`       // Cloudflare Account ID
+	AccessKeyId     string             `json:"accessKeyId"`     // R2 Access Key ID
+	SecretAccessKey string             `json:"secretAccessKey"` // R2 Secret Access Key
+	BucketName      string             `json:"bucketName"`
+	Endpoint        string             `json:"endpoint"`     // R2 Endpoint URL
+	PublicDomain    string             `json:"publicDomain"` // 公开访问域名
+	APIToken        string             `json:"apiToken"`     // Cloudflare API Token (用于 GraphQL 查询)
+	Quota           Quota              `json:"quota"`
+	Usage           Usage              `json:"usage"`
+	Permissions     AccountPermissions `json:"permissions"` // 账户权限配置
+	CreatedAt       string             `json:"createdAt"`
+	UpdatedAt       string             `json:"updatedAt"`
 }
 
 // Quota 账户配额限制（用户手动配置）
@@ -129,6 +150,46 @@ func (a *Account) IsOverOps() bool {
 // IsAvailable 检查账户是否可用于上传
 func (a *Account) IsAvailable() bool {
 	return a.IsActive && !a.IsOverQuota() && !a.IsOverOps()
+}
+
+// CanS3 检查账户是否允许 S3 API 访问
+func (a *Account) CanS3() bool {
+	return a.Permissions.S3
+}
+
+// CanWebDAV 检查账户是否允许 WebDAV 访问
+func (a *Account) CanWebDAV() bool {
+	return a.Permissions.WebDAV
+}
+
+// CanAutoUpload 检查账户是否允许作为自动上传目标
+func (a *Account) CanAutoUpload() bool {
+	return a.Permissions.AutoUpload
+}
+
+// CanAPIUpload 检查账户是否允许通过 API 上传
+func (a *Account) CanAPIUpload() bool {
+	return a.Permissions.APIUpload
+}
+
+// CanClientUpload 检查账户是否允许前端客户端上传
+func (a *Account) CanClientUpload() bool {
+	return a.Permissions.ClientUpload
+}
+
+// IsAvailableForAutoUpload 检查账户是否可用于自动上传
+func (a *Account) IsAvailableForAutoUpload() bool {
+	return a.IsAvailable() && a.CanAutoUpload() && a.CanAPIUpload()
+}
+
+// IsAvailableForAPIUpload 检查账户是否可用于 API 上传
+func (a *Account) IsAvailableForAPIUpload() bool {
+	return a.IsAvailable() && a.CanAPIUpload()
+}
+
+// IsAvailableForClientUpload 检查账户是否可用于前端上传
+func (a *Account) IsAvailableForClientUpload() bool {
+	return a.IsAvailable() && a.CanClientUpload()
 }
 
 // GetUsagePercent 获取容量使用百分比

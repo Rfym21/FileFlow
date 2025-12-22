@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { HardDrive, Key, Settings as SettingsIcon, Server, FolderTree } from "lucide-react";
 import AccountsManager from "@/components/AccountsManager";
@@ -11,6 +11,13 @@ type Tab = "accounts" | "tokens" | "s3" | "webdav" | "system";
 
 export default function Settings() {
   const [activeTab, setActiveTab] = useState<Tab>("accounts");
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // 切换 tab 时刷新数据
+  const handleTabChange = useCallback((tab: Tab) => {
+    setActiveTab(tab);
+    setRefreshKey((k) => k + 1);
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -24,7 +31,7 @@ export default function Settings() {
         <Button
           variant={activeTab === "accounts" ? "default" : "ghost"}
           className="rounded-b-none flex-shrink-0"
-          onClick={() => setActiveTab("accounts")}
+          onClick={() => handleTabChange("accounts")}
         >
           <HardDrive className="mr-2 h-4 w-4" />
           账户管理
@@ -32,7 +39,7 @@ export default function Settings() {
         <Button
           variant={activeTab === "tokens" ? "default" : "ghost"}
           className="rounded-b-none flex-shrink-0"
-          onClick={() => setActiveTab("tokens")}
+          onClick={() => handleTabChange("tokens")}
         >
           <Key className="mr-2 h-4 w-4" />
           令牌管理
@@ -40,7 +47,7 @@ export default function Settings() {
         <Button
           variant={activeTab === "s3" ? "default" : "ghost"}
           className="rounded-b-none flex-shrink-0"
-          onClick={() => setActiveTab("s3")}
+          onClick={() => handleTabChange("s3")}
         >
           <Server className="mr-2 h-4 w-4" />
           S3 凭证
@@ -48,7 +55,7 @@ export default function Settings() {
         <Button
           variant={activeTab === "webdav" ? "default" : "ghost"}
           className="rounded-b-none flex-shrink-0"
-          onClick={() => setActiveTab("webdav")}
+          onClick={() => handleTabChange("webdav")}
         >
           <FolderTree className="mr-2 h-4 w-4" />
           WebDAV 凭证
@@ -56,7 +63,7 @@ export default function Settings() {
         <Button
           variant={activeTab === "system" ? "default" : "ghost"}
           className="rounded-b-none flex-shrink-0"
-          onClick={() => setActiveTab("system")}
+          onClick={() => handleTabChange("system")}
         >
           <SettingsIcon className="mr-2 h-4 w-4" />
           系统设置
@@ -64,11 +71,11 @@ export default function Settings() {
       </div>
 
       {/* 内容 */}
-      {activeTab === "accounts" && <AccountsManager />}
-      {activeTab === "tokens" && <TokensManager />}
-      {activeTab === "s3" && <S3CredentialsManager />}
-      {activeTab === "webdav" && <WebDAVCredentialsManager />}
-      {activeTab === "system" && <SystemSettings />}
+      {activeTab === "accounts" && <AccountsManager key={`accounts-${refreshKey}`} />}
+      {activeTab === "tokens" && <TokensManager key={`tokens-${refreshKey}`} />}
+      {activeTab === "s3" && <S3CredentialsManager key={`s3-${refreshKey}`} />}
+      {activeTab === "webdav" && <WebDAVCredentialsManager key={`webdav-${refreshKey}`} />}
+      {activeTab === "system" && <SystemSettings key={`system-${refreshKey}`} />}
     </div>
   );
 }

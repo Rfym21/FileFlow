@@ -202,14 +202,16 @@ export default function WebDAVCredentialsManager() {
                 className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
               >
                 <option value="">选择存储账户</option>
-                {accounts.map((acc) => (
-                  <option key={acc.id} value={acc.id}>
-                    {acc.name} ({acc.bucketName})
-                  </option>
-                ))}
+                {accounts
+                  .filter((acc) => acc.permissions?.webdav)
+                  .map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.name} ({acc.bucketName})
+                    </option>
+                  ))}
               </select>
               <p className="text-xs text-muted-foreground">
-                凭证将绑定到此账户，访问路径为 /webdav/
+                仅显示已启用 WebDAV 权限的账户
               </p>
             </div>
             <div className="space-y-2">

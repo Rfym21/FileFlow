@@ -11,6 +11,7 @@ import {
   type AccountFull,
 } from "@/lib/api";
 import { formatBytes } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
 import {
   X,
   Copy,
@@ -20,6 +21,7 @@ import {
   File as FileIcon,
   CloudUpload,
   ExternalLink,
+  FolderOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -75,9 +77,12 @@ export default function FileUploader({
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [accounts, setAccounts] = useState<AccountFull[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>(defaultAccountId || "");
+  const [customPath, setCustomPath] = useState<string>(defaultPath || "");
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
+  const customPathRef = useRef<string>(defaultPath || "");
+  const selectedAccountIdRef = useRef<string>(defaultAccountId || "");
 
   // 加载账户列表
   useEffect(() => {
@@ -100,6 +105,16 @@ export default function FileUploader({
       setSelectedAccountId(defaultAccountId);
     }
   }, [defaultAccountId]);
+
+  // 同步自定义路径到 ref（用于上传时获取最新值）
+  useEffect(() => {
+    customPathRef.current = customPath;
+  }, [customPath]);
+
+  // 同步选中账户到 ref（用于上传时获取最新值）
+  useEffect(() => {
+    selectedAccountIdRef.current = selectedAccountId;
+  }, [selectedAccountId]);
 
   /**
    * 处理拖拽进入
@@ -214,8 +229,8 @@ export default function FileUploader({
 
       const result = await uploadFile(
         upload.file,
-        defaultPath || undefined,
-        selectedAccountId || undefined
+        customPathRef.current || undefined,
+        selectedAccountIdRef.current || undefined
       );
 
       clearInterval(progressInterval);
@@ -261,17 +276,21 @@ export default function FileUploader({
 
   const hasUploads = uploads.length > 0;
   const hasCompleted = uploads.some((u) => u.status === "success");
-  const availableAccounts = accounts.filter((a) => a.isAvailable);
+  // 仅显示已启用前端上传权限的可用账户
+  const availableAccounts = accounts.filter((a) => a.isAvailable && a.permissions?.clientUpload);
 
   return (
     <div className="space-y-4">
-      {/* 账户选择 */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="flex-1">
+      {/* 上传设置 */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
           <label className="text-sm font-medium mb-1.5 block">目标账户</label>
           <select
             value={selectedAccountId}
-            onChange={(e) => setSelectedAccountId(e.target.value)}
+            onChange={(e) => {
+              setSelectedAccountId(e.target.value);
+              selectedAccountIdRef.current = e.target.value;
+            }}
             disabled={isLoadingAccounts}
             className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           >
@@ -282,15 +301,32 @@ export default function FileUploader({
               </option>
             ))}
           </select>
+          <p className="text-xs text-muted-foreground mt-1">仅显示已启用前端上传权限的账户</p>
         </div>
-        {hasCompleted && (
-          <div className="flex items-end">
-            <Button variant="outline" size="sm" onClick={clearCompleted}>
-              清除已完成
-            </Button>
+        <div>
+          <label className="text-sm font-medium mb-1.5 block">上传目录</label>
+          <div className="relative">
+            <FolderOpen className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              value={customPath}
+              onChange={(e) => {
+                setCustomPath(e.target.value);
+                customPathRef.current = e.target.value;
+              }}
+              placeholder="留空使用默认目录（按日期）"
+              className="pl-9 h-9"
+            />
           </div>
-        )}
+          <p className="text-xs text-muted-foreground mt-1">例如：images/avatar 或 docs/2024</p>
+        </div>
       </div>
+      {hasCompleted && (
+        <div className="flex justify-end">
+          <Button variant="outline" size="sm" onClick={clearCompleted}>
+            清除已完成
+          </Button>
+        </div>
+      )}
 
       {/* 拖拽上传区域 */}
       <div
@@ -432,13 +468,6 @@ function UploadItemCard({ upload, onRemove }: UploadItemCardProps) {
                 <p className="font-medium text-sm truncate">{upload.file.name}</p>
                 <p className="text-xs text-muted-foreground">
                   {formatBytes(upload.file.size)}
-                  {upload.result && (
-                    <span className="ml-2">
-                      <Badge variant="outline" className="text-xs">
-                        {upload.result.accountName}
-                      </Badge>
-                    </span>
-                  )}
                 </p>
               </div>
               <Button
@@ -463,36 +492,47 @@ function UploadItemCard({ upload, onRemove }: UploadItemCardProps) {
               <p className="text-xs text-destructive mt-2">{upload.error}</p>
             )}
 
-            {/* 成功结果 */}
+            {/* 成功结果 - 所有文件类型都显示 URL 和账户信息 */}
             {upload.status === "success" && upload.result && (
               <div className="mt-2 space-y-2">
-                <div className="flex items-center gap-1 p-2 bg-muted rounded text-xs font-mono break-all">
-                  <span className="flex-1 truncate">{upload.result.url}</span>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Check className="h-3.5 w-3.5 text-green-500" />
+                  <span>已上传至</span>
+                  <Badge variant="secondary" className="text-xs">
+                    {upload.result.accountName}
+                  </Badge>
                 </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={handleCopy}
-                  >
-                    {copied ? (
-                      <Check className="h-3 w-3 mr-1 text-green-500" />
-                    ) : (
-                      <Copy className="h-3 w-3 mr-1" />
-                    )}
-                    复制链接
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={handleOpenUrl}
-                  >
-                    <ExternalLink className="h-3 w-3 mr-1" />
-                    打开
-                  </Button>
-                </div>
+                {upload.result.url && (
+                  <>
+                    <div className="p-2 bg-muted rounded text-xs font-mono break-all leading-relaxed">
+                      {upload.result.url}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={handleCopy}
+                      >
+                        {copied ? (
+                          <Check className="h-3 w-3 mr-1 text-green-500" />
+                        ) : (
+                          <Copy className="h-3 w-3 mr-1" />
+                        )}
+                        复制链接
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={handleOpenUrl}
+                      >
+                        <ExternalLink className="h-3 w-3 mr-1" />
+                        打开
+                      </Button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>

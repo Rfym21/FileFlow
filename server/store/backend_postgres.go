@@ -62,6 +62,11 @@ func (b *PostgresBackend) createTables() error {
 			usage_class_a_ops BIGINT DEFAULT 0,
 			usage_class_b_ops BIGINT DEFAULT 0,
 			usage_last_sync_at TEXT,
+			perm_s3 BOOLEAN DEFAULT true,
+			perm_webdav BOOLEAN DEFAULT true,
+			perm_auto_upload BOOLEAN DEFAULT true,
+			perm_api_upload BOOLEAN DEFAULT true,
+			perm_client_upload BOOLEAN DEFAULT true,
 			created_at TEXT,
 			updated_at TEXT
 		)
@@ -69,6 +74,9 @@ func (b *PostgresBackend) createTables() error {
 	if err != nil {
 		return err
 	}
+
+	// 迁移：为已有表添加权限字段
+	b.migrateAccountPermissions()
 
 	// 创建 tokens 表
 	_, err = b.db.Exec(`
@@ -145,6 +153,8 @@ func (b *PostgresBackend) Load() (*Data, error) {
 			secret_access_key, bucket_name, endpoint, public_domain, api_token,
 			quota_max_size_bytes, quota_max_class_a_ops,
 			usage_size_bytes, usage_class_a_ops, usage_class_b_ops, usage_last_sync_at,
+			COALESCE(perm_s3, true), COALESCE(perm_webdav, true), COALESCE(perm_auto_upload, true),
+			COALESCE(perm_api_upload, true), COALESCE(perm_client_upload, true),
 			created_at, updated_at
 		FROM accounts
 	`)
@@ -164,6 +174,8 @@ func (b *PostgresBackend) Load() (*Data, error) {
 			&secretAccessKey, &bucketName, &endpoint, &publicDomain, &apiToken,
 			&acc.Quota.MaxSizeBytes, &acc.Quota.MaxClassAOps,
 			&acc.Usage.SizeBytes, &acc.Usage.ClassAOps, &acc.Usage.ClassBOps, &usageLastSyncAt,
+			&acc.Permissions.S3, &acc.Permissions.WebDAV, &acc.Permissions.AutoUpload,
+			&acc.Permissions.APIUpload, &acc.Permissions.ClientUpload,
 			&createdAt, &updatedAt,
 		)
 		if err != nil {
@@ -333,13 +345,16 @@ func (b *PostgresBackend) Save(data *Data) error {
 				secret_access_key, bucket_name, endpoint, public_domain, api_token,
 				quota_max_size_bytes, quota_max_class_a_ops,
 				usage_size_bytes, usage_class_a_ops, usage_class_b_ops, usage_last_sync_at,
+				perm_s3, perm_webdav, perm_auto_upload, perm_api_upload, perm_client_upload,
 				created_at, updated_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
 		`,
 			acc.ID, acc.Name, acc.IsActive, acc.Description, acc.AccountID, acc.AccessKeyId,
 			acc.SecretAccessKey, acc.BucketName, acc.Endpoint, acc.PublicDomain, acc.APIToken,
 			acc.Quota.MaxSizeBytes, acc.Quota.MaxClassAOps,
 			acc.Usage.SizeBytes, acc.Usage.ClassAOps, acc.Usage.ClassBOps, acc.Usage.LastSyncAt,
+			acc.Permissions.S3, acc.Permissions.WebDAV, acc.Permissions.AutoUpload,
+			acc.Permissions.APIUpload, acc.Permissions.ClientUpload,
 			acc.CreatedAt, acc.UpdatedAt,
 		)
 		if err != nil {
@@ -446,4 +461,19 @@ func (b *PostgresBackend) Close() error {
 		return b.db.Close()
 	}
 	return nil
+}
+
+// migrateAccountPermissions 迁移账户权限字段
+func (b *PostgresBackend) migrateAccountPermissions() {
+	// 尝试添加权限字段，如果已存在则忽略错误
+	columns := []string{
+		"perm_s3 BOOLEAN DEFAULT true",
+		"perm_webdav BOOLEAN DEFAULT true",
+		"perm_auto_upload BOOLEAN DEFAULT true",
+		"perm_api_upload BOOLEAN DEFAULT true",
+		"perm_client_upload BOOLEAN DEFAULT true",
+	}
+	for _, col := range columns {
+		b.db.Exec("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS " + col)
+	}
 }
