@@ -12,7 +12,6 @@ const (
 	redisAccountsKey          = "fileflow:accounts"
 	redisTokensKey            = "fileflow:tokens"
 	redisSettingsKey          = "fileflow:settings"
-	redisS3CredentialsKey     = "fileflow:s3_credentials"
 	redisWebDAVCredentialsKey = "fileflow:webdav_credentials"
 	redisFileExpirationsKey   = "fileflow:file_expirations"
 )
@@ -54,7 +53,6 @@ func (b *RedisBackend) Load() (*Data, error) {
 	data := &Data{
 		Accounts:          []Account{},
 		Tokens:            []Token{},
-		S3Credentials:     []S3Credential{},
 		WebDAVCredentials: []WebDAVCredential{},
 		FileExpirations:   []FileExpiration{},
 	}
@@ -105,12 +103,6 @@ func (b *RedisBackend) Load() (*Data, error) {
 		if v, ok := settingsMap["expiration_check_minutes"]; ok {
 			fmt.Sscanf(v, "%d", &data.Settings.ExpirationCheckMinutes)
 		}
-		if v, ok := settingsMap["s3_virtual_hosted_style"]; ok {
-			data.Settings.S3VirtualHostedStyle = (v == "true" || v == "1")
-		}
-		if v, ok := settingsMap["s3_base_domain"]; ok {
-			data.Settings.S3BaseDomain = v
-		}
 	}
 	if data.Settings.SyncInterval <= 0 {
 		data.Settings.SyncInterval = 5
@@ -120,20 +112,6 @@ func (b *RedisBackend) Load() (*Data, error) {
 	}
 	if data.Settings.ExpirationCheckMinutes <= 0 {
 		data.Settings.ExpirationCheckMinutes = 720
-	}
-
-	// 加载 s3_credentials
-	s3CredsMap, err := b.client.HGetAll(b.ctx, redisS3CredentialsKey).Result()
-	if err != nil && err != redis.Nil {
-		return nil, fmt.Errorf("加载 s3_credentials 失败: %w", err)
-	}
-
-	for _, jsonStr := range s3CredsMap {
-		var cred S3Credential
-		if err := json.Unmarshal([]byte(jsonStr), &cred); err != nil {
-			continue
-		}
-		data.S3Credentials = append(data.S3Credentials, cred)
 	}
 
 	// 加载 webdav_credentials
@@ -174,7 +152,6 @@ func (b *RedisBackend) Save(data *Data) error {
 	// 删除旧数据
 	pipe.Del(b.ctx, redisAccountsKey)
 	pipe.Del(b.ctx, redisTokensKey)
-	pipe.Del(b.ctx, redisS3CredentialsKey)
 	pipe.Del(b.ctx, redisWebDAVCredentialsKey)
 	pipe.Del(b.ctx, redisFileExpirationsKey)
 
@@ -214,25 +191,6 @@ func (b *RedisBackend) Save(data *Data) error {
 	pipe.HSet(b.ctx, redisSettingsKey, "endpoint_proxy_url", data.Settings.EndpointProxyURL)
 	pipe.HSet(b.ctx, redisSettingsKey, "default_expiration_days", fmt.Sprintf("%d", data.Settings.DefaultExpirationDays))
 	pipe.HSet(b.ctx, redisSettingsKey, "expiration_check_minutes", fmt.Sprintf("%d", data.Settings.ExpirationCheckMinutes))
-	s3VirtualHostedStyleVal := "false"
-	if data.Settings.S3VirtualHostedStyle {
-		s3VirtualHostedStyleVal = "true"
-	}
-	pipe.HSet(b.ctx, redisSettingsKey, "s3_virtual_hosted_style", s3VirtualHostedStyleVal)
-	pipe.HSet(b.ctx, redisSettingsKey, "s3_base_domain", data.Settings.S3BaseDomain)
-
-	// 保存 s3_credentials
-	if len(data.S3Credentials) > 0 {
-		s3CredsMap := make(map[string]string)
-		for _, cred := range data.S3Credentials {
-			jsonBytes, err := json.Marshal(cred)
-			if err != nil {
-				return fmt.Errorf("序列化 s3_credential 失败: %w", err)
-			}
-			s3CredsMap[cred.ID] = string(jsonBytes)
-		}
-		pipe.HSet(b.ctx, redisS3CredentialsKey, s3CredsMap)
-	}
 
 	// 保存 webdav_credentials
 	if len(data.WebDAVCredentials) > 0 {

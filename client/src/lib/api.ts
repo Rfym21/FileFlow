@@ -103,7 +103,6 @@ export interface Usage {
  * 账户权限配置
  */
 export interface AccountPermissions {
-  s3: boolean;
   webdav: boolean;
   autoUpload: boolean;
   apiUpload: boolean;
@@ -411,8 +410,6 @@ export interface Settings {
   endpointProxyUrl: string;
   defaultExpirationDays: number;
   expirationCheckMinutes: number;
-  s3VirtualHostedStyle: boolean;
-  s3BaseDomain: string;
 }
 
 export async function getSettings(): Promise<Settings> {
@@ -424,55 +421,6 @@ export async function updateSettings(data: Settings): Promise<Settings> {
     method: "PUT",
     body: JSON.stringify(data),
   });
-}
-
-// ==================== S3 凭证 API ====================
-
-export interface S3Credential {
-  id: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  accountId: string;
-  description: string;
-  permissions: string[];
-  isActive: boolean;
-  createdAt: string;
-  lastUsedAt: string;
-}
-
-export interface S3CredentialRequest {
-  accountId: string;
-  description: string;
-  permissions: string[];
-}
-
-export interface S3CredentialUpdateRequest {
-  description: string;
-  permissions: string[];
-  isActive: boolean;
-}
-
-export async function getS3Credentials(): Promise<S3Credential[]> {
-  const result = await request<{ credentials: S3Credential[] }>("/s3-credentials");
-  return result.credentials;
-}
-
-export async function createS3Credential(data: S3CredentialRequest): Promise<{ credential: S3Credential }> {
-  return request("/s3-credentials", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
-}
-
-export async function updateS3Credential(id: string, data: S3CredentialUpdateRequest): Promise<void> {
-  return request(`/s3-credentials/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(data),
-  });
-}
-
-export async function deleteS3Credential(id: string): Promise<void> {
-  return request(`/s3-credentials/${id}`, { method: "DELETE" });
 }
 
 // ==================== WebDAV 凭证 API ====================

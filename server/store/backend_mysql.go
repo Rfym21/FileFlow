@@ -88,7 +88,6 @@ func (b *MySQLBackend) createTables() error {
 			usage_class_a_ops BIGINT DEFAULT 0,
 			usage_class_b_ops BIGINT DEFAULT 0,
 			usage_last_sync_at VARCHAR(64),
-			perm_s3 BOOLEAN DEFAULT true,
 			perm_webdav BOOLEAN DEFAULT true,
 			perm_auto_upload BOOLEAN DEFAULT true,
 			perm_api_upload BOOLEAN DEFAULT true,
@@ -120,24 +119,6 @@ func (b *MySQLBackend) createTables() error {
 		CREATE TABLE IF NOT EXISTS settings (
 			` + "`key`" + ` VARCHAR(64) PRIMARY KEY,
 			value TEXT
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-	`)
-	if err != nil {
-		return err
-	}
-
-	// 创建 s3_credentials 表
-	_, err = b.db.Exec(`
-		CREATE TABLE IF NOT EXISTS s3_credentials (
-			id VARCHAR(36) PRIMARY KEY,
-			access_key_id VARCHAR(64) UNIQUE NOT NULL,
-			secret_access_key VARCHAR(64) NOT NULL,
-			account_id VARCHAR(36) NOT NULL,
-			description TEXT,
-			permissions TEXT,
-			is_active BOOLEAN DEFAULT true,
-			created_at VARCHAR(64),
-			last_used_at VARCHAR(64)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 	`)
 	if err != nil {
@@ -181,7 +162,6 @@ func (b *MySQLBackend) Load() (*Data, error) {
 	data := &Data{
 		Accounts:          []Account{},
 		Tokens:            []Token{},
-		S3Credentials:     []S3Credential{},
 		WebDAVCredentials: []WebDAVCredential{},
 		FileExpirations:   []FileExpiration{},
 	}
@@ -192,7 +172,7 @@ func (b *MySQLBackend) Load() (*Data, error) {
 			secret_access_key, bucket_name, endpoint, public_domain, api_token,
 			quota_max_size_bytes, quota_max_class_a_ops,
 			usage_size_bytes, usage_class_a_ops, usage_class_b_ops, usage_last_sync_at,
-			COALESCE(perm_s3, true), COALESCE(perm_webdav, true), COALESCE(perm_auto_upload, true),
+			COALESCE(perm_webdav, true), COALESCE(perm_auto_upload, true),
 			COALESCE(perm_api_upload, true), COALESCE(perm_client_upload, true),
 			created_at, updated_at
 		FROM accounts
@@ -213,7 +193,7 @@ func (b *MySQLBackend) Load() (*Data, error) {
 			&secretAccessKey, &bucketName, &endpoint, &publicDomain, &apiToken,
 			&acc.Quota.MaxSizeBytes, &acc.Quota.MaxClassAOps,
 			&acc.Usage.SizeBytes, &acc.Usage.ClassAOps, &acc.Usage.ClassBOps, &usageLastSyncAt,
-			&acc.Permissions.S3, &acc.Permissions.WebDAV, &acc.Permissions.AutoUpload,
+			&acc.Permissions.WebDAV, &acc.Permissions.AutoUpload,
 			&acc.Permissions.APIUpload, &acc.Permissions.ClientUpload,
 			&createdAt, &updatedAt,
 		)
@@ -305,55 +285,6 @@ func (b *MySQLBackend) Load() (*Data, error) {
 		data.Settings.ExpirationCheckMinutes = 720
 	}
 
-	var s3VirtualHostedStyle sql.NullString
-	err = b.db.QueryRow("SELECT value FROM settings WHERE `key` = 's3_virtual_hosted_style'").Scan(&s3VirtualHostedStyle)
-	if err == nil && s3VirtualHostedStyle.Valid {
-		data.Settings.S3VirtualHostedStyle = s3VirtualHostedStyle.String == "true"
-	}
-
-	var s3BaseDomain sql.NullString
-	err = b.db.QueryRow("SELECT value FROM settings WHERE `key` = 's3_base_domain'").Scan(&s3BaseDomain)
-	if err == nil && s3BaseDomain.Valid {
-		data.Settings.S3BaseDomain = s3BaseDomain.String
-	}
-
-	// 加载 s3_credentials
-	rows, err = b.db.Query(`
-		SELECT id, access_key_id, secret_access_key, account_id, description,
-			permissions, is_active, created_at, last_used_at
-		FROM s3_credentials
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("查询 s3_credentials 失败: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var cred S3Credential
-		var description, permissions, createdAt, lastUsedAt sql.NullString
-
-		err := rows.Scan(
-			&cred.ID, &cred.AccessKeyID, &cred.SecretAccessKey, &cred.AccountID,
-			&description, &permissions, &cred.IsActive, &createdAt, &lastUsedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("扫描 s3_credential 行失败: %w", err)
-		}
-
-		cred.Description = description.String
-		if permissions.Valid && permissions.String != "" {
-			if err := json.Unmarshal([]byte(permissions.String), &cred.Permissions); err != nil {
-				cred.Permissions = []string{}
-			}
-		} else {
-			cred.Permissions = []string{}
-		}
-		cred.CreatedAt = createdAt.String
-		cred.LastUsedAt = lastUsedAt.String
-
-		data.S3Credentials = append(data.S3Credentials, cred)
-	}
-
 	// 加载 webdav_credentials
 	rows, err = b.db.Query(`
 		SELECT id, username, password, account_id, description,
@@ -437,15 +368,15 @@ func (b *MySQLBackend) Save(data *Data) error {
 				secret_access_key, bucket_name, endpoint, public_domain, api_token,
 				quota_max_size_bytes, quota_max_class_a_ops,
 				usage_size_bytes, usage_class_a_ops, usage_class_b_ops, usage_last_sync_at,
-				perm_s3, perm_webdav, perm_auto_upload, perm_api_upload, perm_client_upload,
+				perm_webdav, perm_auto_upload, perm_api_upload, perm_client_upload,
 				created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`,
 			acc.ID, acc.Name, acc.IsActive, acc.Description, acc.AccountID, acc.AccessKeyId,
 			acc.SecretAccessKey, acc.BucketName, acc.Endpoint, acc.PublicDomain, acc.APIToken,
 			acc.Quota.MaxSizeBytes, acc.Quota.MaxClassAOps,
 			acc.Usage.SizeBytes, acc.Usage.ClassAOps, acc.Usage.ClassBOps, acc.Usage.LastSyncAt,
-			acc.Permissions.S3, acc.Permissions.WebDAV, acc.Permissions.AutoUpload,
+			acc.Permissions.WebDAV, acc.Permissions.AutoUpload,
 			acc.Permissions.APIUpload, acc.Permissions.ClientUpload,
 			acc.CreatedAt, acc.UpdatedAt,
 		)
@@ -502,42 +433,6 @@ func (b *MySQLBackend) Save(data *Data) error {
 		fmt.Sprintf("%d", data.Settings.ExpirationCheckMinutes))
 	if err != nil {
 		return fmt.Errorf("保存 settings 失败: %w", err)
-	}
-
-	s3VirtualHostedStyleVal := "false"
-	if data.Settings.S3VirtualHostedStyle {
-		s3VirtualHostedStyleVal = "true"
-	}
-	_, err = tx.Exec("REPLACE INTO settings (`key`, value) VALUES ('s3_virtual_hosted_style', ?)", s3VirtualHostedStyleVal)
-	if err != nil {
-		return fmt.Errorf("保存 settings 失败: %w", err)
-	}
-
-	_, err = tx.Exec("REPLACE INTO settings (`key`, value) VALUES ('s3_base_domain', ?)", data.Settings.S3BaseDomain)
-	if err != nil {
-		return fmt.Errorf("保存 settings 失败: %w", err)
-	}
-
-	// 清空并重新插入 s3_credentials
-	if _, err := tx.Exec("DELETE FROM s3_credentials"); err != nil {
-		return fmt.Errorf("清空 s3_credentials 失败: %w", err)
-	}
-
-	for _, cred := range data.S3Credentials {
-		permissions, _ := json.Marshal(cred.Permissions)
-
-		_, err := tx.Exec(`
-			INSERT INTO s3_credentials (
-				id, access_key_id, secret_access_key, account_id, description,
-				permissions, is_active, created_at, last_used_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`,
-			cred.ID, cred.AccessKeyID, cred.SecretAccessKey, cred.AccountID, cred.Description,
-			string(permissions), cred.IsActive, cred.CreatedAt, cred.LastUsedAt,
-		)
-		if err != nil {
-			return fmt.Errorf("插入 s3_credential 失败: %w", err)
-		}
 	}
 
 	// 清空并重新插入 webdav_credentials

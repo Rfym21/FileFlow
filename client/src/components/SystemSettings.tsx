@@ -15,8 +15,6 @@ export default function SystemSettings() {
     endpointProxyUrl: "",
     defaultExpirationDays: 30,
     expirationCheckMinutes: 720,
-    s3VirtualHostedStyle: false,
-    s3BaseDomain: "",
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -150,57 +148,6 @@ export default function SystemSettings() {
               <p className="text-xs text-muted-foreground">
                 示例：https://your-domain.com, 文件将通过 https://your-domain.com/[subdomain]/[path] 访问, 如果你没有部署外置的 endpoint-proxy 可以填程序内置的, 即 https://your-domain.com/p 或 http://localhost:port/p , 外置部署可以看项目文档。
               </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* S3 虚拟主机风格设置 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Globe className="h-5 w-5" />
-            S3 虚拟主机风格
-          </CardTitle>
-          <CardDescription>
-            启用 S3 Virtual Hosted Style 访问模式（需配置通配符 DNS）
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label htmlFor="s3VirtualHostedStyle">启用虚拟主机风格</Label>
-              <p className="text-xs text-muted-foreground">
-                允许使用 bucket.s3.example.com/key 格式访问（同时保留 Path Style）
-              </p>
-            </div>
-            <Switch
-              id="s3VirtualHostedStyle"
-              checked={settings.s3VirtualHostedStyle}
-              onCheckedChange={(checked) =>
-                setSettings({ ...settings, s3VirtualHostedStyle: checked })
-              }
-            />
-          </div>
-
-          {settings.s3VirtualHostedStyle && (
-            <div className="space-y-2">
-              <Label htmlFor="s3BaseDomain">S3 基础域名</Label>
-              <Input
-                id="s3BaseDomain"
-                type="text"
-                placeholder="s3.example.com"
-                value={settings.s3BaseDomain}
-                onChange={(e) =>
-                  setSettings({ ...settings, s3BaseDomain: e.target.value })
-                }
-              />
-              <div className="text-xs text-muted-foreground space-y-1">
-                <p>• 基础域名（不含 bucket 名称），如：s3.example.com</p>
-                <p>• 需配置通配符 DNS：*.s3.example.com -&gt; 服务器 IP</p>
-                <p>• 访问示例：my-bucket.s3.example.com/photo.jpg</p>
-                <p>• Path Style 仍然可用：example.com/s3/my-bucket/photo.jpg</p>
-              </div>
             </div>
           )}
         </CardContent>

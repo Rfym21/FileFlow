@@ -195,7 +195,7 @@ func CreateAccount(c *gin.Context) {
 
 	// 如果权限未设置（全为false），使用默认权限
 	permissions := req.Permissions
-	if !permissions.S3 && !permissions.WebDAV && !permissions.AutoUpload &&
+	if !permissions.WebDAV && !permissions.AutoUpload &&
 		!permissions.APIUpload && !permissions.ClientUpload {
 		permissions = store.DefaultAccountPermissions()
 	}

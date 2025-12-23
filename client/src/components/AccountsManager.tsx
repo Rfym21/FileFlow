@@ -64,7 +64,6 @@ const defaultAccountForm: AccountRequest = {
     maxClassAOps: 1000000,
   },
   permissions: {
-    s3: true,
     webdav: true,
     autoUpload: true,
     apiUpload: true,
@@ -452,20 +451,7 @@ export default function AccountsManager() {
             {/* 权限设置 */}
             <div className="space-y-3">
               <Label>权限设置</Label>
-              <div className="grid gap-3 md:grid-cols-5">
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="perm-s3"
-                    checked={form.permissions?.s3 ?? true}
-                    onCheckedChange={(checked) =>
-                      setForm({
-                        ...form,
-                        permissions: { ...form.permissions, s3: checked === true },
-                      })
-                    }
-                  />
-                  <Label htmlFor="perm-s3" className="text-sm cursor-pointer">S3 API</Label>
-                </div>
+              <div className="grid gap-3 md:grid-cols-4">
                 <div className="flex items-center space-x-2">
                   <Checkbox
                     id="perm-webdav"
@@ -660,9 +646,6 @@ export default function AccountsManager() {
               </div>
               {/* 第五行：权限标签 */}
               <div className="flex flex-wrap gap-1.5">
-                {account.permissions?.s3 && (
-                  <Badge variant="secondary" className="text-xs">S3</Badge>
-                )}
                 {account.permissions?.webdav && (
                   <Badge variant="secondary" className="text-xs">WebDAV</Badge>
                 )}
@@ -675,7 +658,7 @@ export default function AccountsManager() {
                 {account.permissions?.clientUpload && (
                   <Badge variant="secondary" className="text-xs">前端上传</Badge>
                 )}
-                {account.permissions && !account.permissions.s3 && !account.permissions.webdav &&
+                {account.permissions && !account.permissions.webdav &&
                  !account.permissions.autoUpload && !account.permissions.apiUpload && !account.permissions.clientUpload && (
                   <Badge variant="outline" className="text-xs text-muted-foreground">无权限</Badge>
                 )}

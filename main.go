@@ -11,7 +11,6 @@ import (
 
 	"fileflow/server/api"
 	"fileflow/server/config"
-	"fileflow/server/s3api"
 	"fileflow/server/service"
 	"fileflow/server/store"
 	"fileflow/server/webdav"
@@ -49,10 +48,6 @@ func main() {
 	// 配置 API 路由
 	api.SetupRouter(r)
 
-	// 配置 S3 兼容 API 路由
-	s3api.SetupS3Router(r)
-	log.Println("S3 兼容 API 已启用，端点: /s3")
-
 	// 配置 WebDAV 路由
 	// 注意：r.Any() 只处理标准 HTTP 方法，不包含 WebDAV 的自定义方法
 	// 必须使用 r.Handle() 显式注册所有 WebDAV 方法
@@ -88,12 +83,8 @@ func main() {
 // corsMiddleware CORS 中间件
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// WebDAV 和 S3 路径跳过 CORS 处理（它们有自己的 OPTIONS 处理）
+		// WebDAV 路径跳过 CORS 处理（它们有自己的 OPTIONS 处理）
 		if len(c.Request.URL.Path) >= 7 && c.Request.URL.Path[:7] == "/webdav" {
-			c.Next()
-			return
-		}
-		if len(c.Request.URL.Path) >= 3 && c.Request.URL.Path[:3] == "/s3" {
 			c.Next()
 			return
 		}

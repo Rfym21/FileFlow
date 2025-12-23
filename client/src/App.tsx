@@ -10,7 +10,6 @@ import Settings from "@/pages/Settings";
 import Guide from "@/pages/Guide";
 import ProxyGuide from "@/pages/ProxyGuide";
 import ApiDocs from "@/pages/ApiDocs";
-import S3Docs from "@/pages/S3Docs";
 import WebDAVDocs from "@/pages/WebDAVDocs";
 import ScheduledDeletions from "@/pages/ScheduledDeletions";
 
@@ -54,7 +53,6 @@ function App() {
             <Route path="guide" element={<Guide />} />
             <Route path="proxy-guide" element={<ProxyGuide />} />
             <Route path="api-docs" element={<ApiDocs />} />
-            <Route path="s3-docs" element={<S3Docs />} />
             <Route path="webdav-docs" element={<WebDAVDocs />} />
           </Route>
         </Routes>

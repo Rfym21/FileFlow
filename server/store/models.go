@@ -4,7 +4,6 @@ import "time"
 
 // AccountPermissions 账户权限配置
 type AccountPermissions struct {
-	S3           bool `json:"s3"`           // 是否允许 S3 API 访问
 	WebDAV       bool `json:"webdav"`       // 是否允许 WebDAV 访问
 	AutoUpload   bool `json:"autoUpload"`   // 是否允许作为自动上传目标（SmartUpload）
 	APIUpload    bool `json:"apiUpload"`    // 是否允许通过 API 上传
@@ -14,7 +13,6 @@ type AccountPermissions struct {
 // DefaultAccountPermissions 返回默认权限配置（全部启用）
 func DefaultAccountPermissions() AccountPermissions {
 	return AccountPermissions{
-		S3:           true,
 		WebDAV:       true,
 		AutoUpload:   true,
 		APIUpload:    true,
@@ -65,29 +63,6 @@ type Token struct {
 	CreatedAt   string   `json:"createdAt"`
 }
 
-// S3Credential S3 兼容 API 访问凭证
-type S3Credential struct {
-	ID              string   `json:"id"`
-	AccessKeyID     string   `json:"accessKeyId"`     // 20 字符，如 FFLWXXXXXXXXXXXX
-	SecretAccessKey string   `json:"secretAccessKey"` // 40 字符
-	AccountID       string   `json:"accountId"`       // 关联的账户 ID
-	Description     string   `json:"description"`
-	Permissions     []string `json:"permissions"` // read, write, delete
-	IsActive        bool     `json:"isActive"`
-	CreatedAt       string   `json:"createdAt"`
-	LastUsedAt      string   `json:"lastUsedAt"`
-}
-
-// HasPermission 检查 S3 凭证是否有指定权限
-func (c *S3Credential) HasPermission(perm string) bool {
-	for _, p := range c.Permissions {
-		if p == perm {
-			return true
-		}
-	}
-	return false
-}
-
 // WebDAVCredential WebDAV 访问凭证
 type WebDAVCredential struct {
 	ID          string   `json:"id"`
@@ -127,15 +102,12 @@ type Settings struct {
 	EndpointProxyURL       string `json:"endpointProxyUrl"`       // 反代 URL
 	DefaultExpirationDays  int    `json:"defaultExpirationDays"`  // 默认文件到期天数，默认 30，0 表示永久
 	ExpirationCheckMinutes int    `json:"expirationCheckMinutes"` // 到期检查间隔（分钟），默认 720（12小时）
-	S3VirtualHostedStyle   bool   `json:"s3VirtualHostedStyle"`   // 启用 S3 虚拟主机风格
-	S3BaseDomain           string `json:"s3BaseDomain"`           // S3 基础域名，如 "s3.example.com"
 }
 
 // Data 存储的完整数据结构
 type Data struct {
 	Accounts          []Account          `json:"accounts"`
 	Tokens            []Token            `json:"tokens"`
-	S3Credentials     []S3Credential     `json:"s3Credentials"`
 	WebDAVCredentials []WebDAVCredential `json:"webdavCredentials"`
 	FileExpirations   []FileExpiration   `json:"fileExpirations"`
 	Settings          Settings           `json:"settings"`
@@ -164,11 +136,6 @@ func (a *Account) IsOverOps() bool {
 // IsAvailable 检查账户是否可用于上传
 func (a *Account) IsAvailable() bool {
 	return a.IsActive && !a.IsOverQuota() && !a.IsOverOps()
-}
-
-// CanS3 检查账户是否允许 S3 API 访问
-func (a *Account) CanS3() bool {
-	return a.Permissions.S3
 }
 
 // CanWebDAV 检查账户是否允许 WebDAV 访问
