@@ -127,6 +127,8 @@ type Settings struct {
 	EndpointProxyURL       string `json:"endpointProxyUrl"`       // 反代 URL
 	DefaultExpirationDays  int    `json:"defaultExpirationDays"`  // 默认文件到期天数，默认 30，0 表示永久
 	ExpirationCheckMinutes int    `json:"expirationCheckMinutes"` // 到期检查间隔（分钟），默认 720（12小时）
+	S3VirtualHostedStyle   bool   `json:"s3VirtualHostedStyle"`   // 启用 S3 虚拟主机风格
+	S3BaseDomain           string `json:"s3BaseDomain"`           // S3 基础域名，如 "s3.example.com"
 }
 
 // Data 存储的完整数据结构

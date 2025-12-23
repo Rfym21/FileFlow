@@ -105,6 +105,12 @@ func (b *RedisBackend) Load() (*Data, error) {
 		if v, ok := settingsMap["expiration_check_minutes"]; ok {
 			fmt.Sscanf(v, "%d", &data.Settings.ExpirationCheckMinutes)
 		}
+		if v, ok := settingsMap["s3_virtual_hosted_style"]; ok {
+			data.Settings.S3VirtualHostedStyle = (v == "true" || v == "1")
+		}
+		if v, ok := settingsMap["s3_base_domain"]; ok {
+			data.Settings.S3BaseDomain = v
+		}
 	}
 	if data.Settings.SyncInterval <= 0 {
 		data.Settings.SyncInterval = 5
@@ -208,6 +214,12 @@ func (b *RedisBackend) Save(data *Data) error {
 	pipe.HSet(b.ctx, redisSettingsKey, "endpoint_proxy_url", data.Settings.EndpointProxyURL)
 	pipe.HSet(b.ctx, redisSettingsKey, "default_expiration_days", fmt.Sprintf("%d", data.Settings.DefaultExpirationDays))
 	pipe.HSet(b.ctx, redisSettingsKey, "expiration_check_minutes", fmt.Sprintf("%d", data.Settings.ExpirationCheckMinutes))
+	s3VirtualHostedStyleVal := "false"
+	if data.Settings.S3VirtualHostedStyle {
+		s3VirtualHostedStyleVal = "true"
+	}
+	pipe.HSet(b.ctx, redisSettingsKey, "s3_virtual_hosted_style", s3VirtualHostedStyleVal)
+	pipe.HSet(b.ctx, redisSettingsKey, "s3_base_domain", data.Settings.S3BaseDomain)
 
 	// 保存 s3_credentials
 	if len(data.S3Credentials) > 0 {

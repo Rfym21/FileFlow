@@ -4,9 +4,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// SetupS3Router 配置 S3 API 路由
-// Path Style: /s3/:bucket/*key
+/**
+ * SetupS3Router 配置 S3 API 路由
+ * 支持双模式:
+ * 1. Path Style: /s3/:bucket/*key
+ * 2. Virtual Hosted Style: bucket.s3.example.com/*key（通过中间件处理）
+ */
 func SetupS3Router(r *gin.Engine) {
+	// 虚拟主机风格中间件（全局）
+	// 在所有路由之前检查，如果是虚拟主机请求则直接处理并中止
+	r.Use(VirtualHostedStyleMiddleware())
+
+	// Path Style 路由组: /s3/:bucket/*key
 	s3Group := r.Group("/s3")
 	s3Group.Use(S3AuthMiddleware())
 
@@ -21,6 +30,7 @@ func SetupS3Router(r *gin.Engine) {
 	s3Group.DELETE("/:bucket/*key", handleDeleteObject)
 	s3Group.POST("/:bucket/*key", handlePostObject)
 }
+
 
 // handleGetObject 处理 GET 请求（可能是 GetObject 或 ListParts）
 func handleGetObject(c *gin.Context) {

@@ -411,6 +411,8 @@ export interface Settings {
   endpointProxyUrl: string;
   defaultExpirationDays: number;
   expirationCheckMinutes: number;
+  s3VirtualHostedStyle: boolean;
+  s3BaseDomain: string;
 }
 
 export async function getSettings(): Promise<Settings> {

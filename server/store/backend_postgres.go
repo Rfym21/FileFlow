@@ -282,6 +282,18 @@ func (b *PostgresBackend) Load() (*Data, error) {
 		data.Settings.ExpirationCheckMinutes = 720
 	}
 
+	var s3VirtualHostedStyle sql.NullString
+	err = b.db.QueryRow(`SELECT value FROM settings WHERE key = 's3_virtual_hosted_style'`).Scan(&s3VirtualHostedStyle)
+	if err == nil && s3VirtualHostedStyle.Valid {
+		data.Settings.S3VirtualHostedStyle = s3VirtualHostedStyle.String == "true"
+	}
+
+	var s3BaseDomain sql.NullString
+	err = b.db.QueryRow(`SELECT value FROM settings WHERE key = 's3_base_domain'`).Scan(&s3BaseDomain)
+	if err == nil && s3BaseDomain.Valid {
+		data.Settings.S3BaseDomain = s3BaseDomain.String
+	}
+
 	// 加载 s3_credentials
 	rows, err = b.db.Query(`
 		SELECT id, access_key_id, secret_access_key, account_id, description,
@@ -477,6 +489,26 @@ func (b *PostgresBackend) Save(data *Data) error {
 		INSERT INTO settings (key, value) VALUES ('expiration_check_minutes', $1)
 		ON CONFLICT (key) DO UPDATE SET value = $1
 	`, fmt.Sprintf("%d", data.Settings.ExpirationCheckMinutes))
+	if err != nil {
+		return fmt.Errorf("保存 settings 失败: %w", err)
+	}
+
+	s3VirtualHostedStyleVal := "false"
+	if data.Settings.S3VirtualHostedStyle {
+		s3VirtualHostedStyleVal = "true"
+	}
+	_, err = tx.Exec(`
+		INSERT INTO settings (key, value) VALUES ('s3_virtual_hosted_style', $1)
+		ON CONFLICT (key) DO UPDATE SET value = $1
+	`, s3VirtualHostedStyleVal)
+	if err != nil {
+		return fmt.Errorf("保存 settings 失败: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO settings (key, value) VALUES ('s3_base_domain', $1)
+		ON CONFLICT (key) DO UPDATE SET value = $1
+	`, data.Settings.S3BaseDomain)
 	if err != nil {
 		return fmt.Errorf("保存 settings 失败: %w", err)
 	}

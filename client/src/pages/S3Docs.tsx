@@ -39,15 +39,33 @@ export default function S3Docs() {
             </div>
             <div>
               <p className="text-sm font-medium mb-1">区域 (Region)</p>
-              <code className="bg-muted px-3 py-2 rounded block text-sm">us-east-1</code>
+              <code className="bg-muted px-3 py-2 rounded block text-sm">auto 或任意 AWS 区域</code>
               <p className="text-xs text-muted-foreground mt-1">
-                使用标准 AWS 区域名称（如 us-east-1），实际请求会路由到 FileFlow 自定义端点
+                推荐使用 <code className="px-1 py-0.5 bg-muted rounded">auto</code> 或 <code className="px-1 py-0.5 bg-muted rounded">us-east-1</code>
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Region 参数仅用于签名计算，实际请求会路由到 FileFlow 自定义端点，可使用任意 AWS 标准区域名称
               </p>
             </div>
             <div>
-              <p className="text-sm font-medium mb-1">路径风格</p>
-              <code className="bg-muted px-3 py-2 rounded block text-sm">Path Style（路径风格）</code>
-              <p className="text-xs text-muted-foreground mt-1">URL 格式: {s3Endpoint}/bucket-name/object-key</p>
+              <p className="text-sm font-medium mb-1">访问模式</p>
+              <div className="space-y-2">
+                <div>
+                  <code className="bg-muted px-3 py-2 rounded block text-sm">Path Style（路径风格）</code>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    URL 格式: {s3Endpoint}/bucket-name/object-key
+                  </p>
+                </div>
+                <div>
+                  <code className="bg-muted px-3 py-2 rounded block text-sm">Virtual Hosted Style（虚拟主机风格）</code>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    URL 格式: bucket-name.s3.example.com/object-key（需在设置中启用并配置 DNS）
+                  </p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                💡 两种模式可同时使用，客户端会根据配置自动选择
+              </p>
             </div>
           </div>
         </CardContent>
