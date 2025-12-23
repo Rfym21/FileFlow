@@ -78,9 +78,6 @@ func (b *SQLiteBackend) createTables() error {
 		return err
 	}
 
-	// 迁移：为已有表添加权限字段
-	b.migrateAccountPermissions()
-
 	// 创建 tokens 表
 	_, err = b.db.Exec(`
 		CREATE TABLE IF NOT EXISTS tokens (
@@ -607,17 +604,3 @@ func (b *SQLiteBackend) Close() error {
 	return nil
 }
 
-// migrateAccountPermissions 迁移账户权限字段
-func (b *SQLiteBackend) migrateAccountPermissions() {
-	// 尝试添加权限字段，如果已存在则忽略错误
-	columns := []string{
-		"perm_s3 INTEGER DEFAULT 1",
-		"perm_webdav INTEGER DEFAULT 1",
-		"perm_auto_upload INTEGER DEFAULT 1",
-		"perm_api_upload INTEGER DEFAULT 1",
-		"perm_client_upload INTEGER DEFAULT 1",
-	}
-	for _, col := range columns {
-		b.db.Exec("ALTER TABLE accounts ADD COLUMN " + col)
-	}
-}

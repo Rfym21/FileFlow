@@ -112,10 +112,17 @@ func WriteS3Error(c *gin.Context, err S3Error) {
 		RequestID: generateRequestID(),
 	}
 
-	c.Header("Content-Type", "application/xml")
+	c.Header("Content-Type", "application/xml; charset=utf-8")
 	c.Status(err.StatusCode)
+
+	xmlData, marshalErr := xml.MarshalIndent(response, "", "  ")
+	if marshalErr != nil {
+		c.Status(500)
+		return
+	}
+
 	c.Writer.Write([]byte(xml.Header))
-	xml.NewEncoder(c.Writer).Encode(response)
+	c.Writer.Write(xmlData)
 }
 
 // WriteS3ErrorWithMessage 写入带自定义消息的 S3 错误响应
@@ -127,10 +134,17 @@ func WriteS3ErrorWithMessage(c *gin.Context, err S3Error, message string) {
 		RequestID: generateRequestID(),
 	}
 
-	c.Header("Content-Type", "application/xml")
+	c.Header("Content-Type", "application/xml; charset=utf-8")
 	c.Status(err.StatusCode)
+
+	xmlData, marshalErr := xml.MarshalIndent(response, "", "  ")
+	if marshalErr != nil {
+		c.Status(500)
+		return
+	}
+
 	c.Writer.Write([]byte(xml.Header))
-	xml.NewEncoder(c.Writer).Encode(response)
+	c.Writer.Write(xmlData)
 }
 
 // generateRequestID 生成请求 ID

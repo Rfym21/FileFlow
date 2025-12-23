@@ -75,9 +75,6 @@ func (b *PostgresBackend) createTables() error {
 		return err
 	}
 
-	// 迁移：为已有表添加权限字段
-	b.migrateAccountPermissions()
-
 	// 创建 tokens 表
 	_, err = b.db.Exec(`
 		CREATE TABLE IF NOT EXISTS tokens (
@@ -583,17 +580,3 @@ func (b *PostgresBackend) Close() error {
 	return nil
 }
 
-// migrateAccountPermissions 迁移账户权限字段
-func (b *PostgresBackend) migrateAccountPermissions() {
-	// 尝试添加权限字段，如果已存在则忽略错误
-	columns := []string{
-		"perm_s3 BOOLEAN DEFAULT true",
-		"perm_webdav BOOLEAN DEFAULT true",
-		"perm_auto_upload BOOLEAN DEFAULT true",
-		"perm_api_upload BOOLEAN DEFAULT true",
-		"perm_client_upload BOOLEAN DEFAULT true",
-	}
-	for _, col := range columns {
-		b.db.Exec("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS " + col)
-	}
-}
