@@ -153,11 +153,15 @@ type ObjectToDeleteInfo struct {
 
 // WriteS3XMLResponse 写入 S3 XML 响应
 func WriteS3XMLResponse(c *gin.Context, status int, v interface{}) {
-	c.Header("Content-Type", "application/xml")
+	c.Header("Content-Type", "application/xml; charset=utf-8")
 	c.Status(status)
-	c.Writer.Write([]byte(xml.Header))
 
-	encoder := xml.NewEncoder(c.Writer)
-	encoder.Indent("", "  ")
-	encoder.Encode(v)
+	xmlData, err := xml.MarshalIndent(v, "", "  ")
+	if err != nil {
+		c.Status(500)
+		return
+	}
+
+	c.Writer.Write([]byte(xml.Header))
+	c.Writer.Write(xmlData)
 }
