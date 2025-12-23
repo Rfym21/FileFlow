@@ -126,10 +126,14 @@ func ListObjectsV2(c *gin.Context) {
 
 	// 转换对象列表
 	for _, obj := range output.Contents {
+		etag := aws.ToString(obj.ETag)
+		// 移除 ETag 两端的引号（R2 返回的 ETag 包含引号，但 XML 中不应该有）
+		etag = strings.Trim(etag, `"`)
+
 		result.Contents = append(result.Contents, ObjectInfo{
 			Key:          aws.ToString(obj.Key),
 			LastModified: aws.ToTime(obj.LastModified).Format(time.RFC3339),
-			ETag:         aws.ToString(obj.ETag),
+			ETag:         etag,
 			Size:         aws.ToInt64(obj.Size),
 			StorageClass: "STANDARD",
 		})

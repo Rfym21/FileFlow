@@ -384,9 +384,12 @@ func CopyObject(c *gin.Context) {
 		return
 	}
 
+	etag := aws.ToString(output.CopyObjectResult.ETag)
+	etag = strings.Trim(etag, `"`)
+
 	result := CopyObjectResult{
 		LastModified: output.CopyObjectResult.LastModified.Format(time.RFC3339),
-		ETag:         aws.ToString(output.CopyObjectResult.ETag),
+		ETag:         etag,
 	}
 
 	WriteS3XMLResponse(c, http.StatusOK, result)

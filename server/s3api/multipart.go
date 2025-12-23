@@ -171,9 +171,12 @@ func UploadPartCopy(c *gin.Context) {
 		return
 	}
 
+	etag := aws.ToString(output.CopyPartResult.ETag)
+	etag = strings.Trim(etag, `"`)
+
 	result := CopyObjectResult{
 		LastModified: output.CopyPartResult.LastModified.Format(time.RFC3339),
-		ETag:         aws.ToString(output.CopyPartResult.ETag),
+		ETag:         etag,
 	}
 
 	WriteS3XMLResponse(c, http.StatusOK, result)
@@ -239,12 +242,15 @@ func CompleteMultipartUpload(c *gin.Context) {
 		return
 	}
 
+	etag := aws.ToString(output.ETag)
+	etag = strings.Trim(etag, `"`)
+
 	result := CompleteMultipartUploadResult{
 		Xmlns:    "http://s3.amazonaws.com/doc/2006-03-01/",
 		Location: aws.ToString(output.Location),
 		Bucket:   bucket,
 		Key:      key,
-		ETag:     aws.ToString(output.ETag),
+		ETag:     etag,
 	}
 
 	WriteS3XMLResponse(c, http.StatusOK, result)
@@ -356,10 +362,13 @@ func ListParts(c *gin.Context) {
 	}
 
 	for _, p := range output.Parts {
+		etag := aws.ToString(p.ETag)
+		etag = strings.Trim(etag, `"`)
+
 		result.Parts = append(result.Parts, PartInfo{
 			PartNumber:   int(aws.ToInt32(p.PartNumber)),
 			LastModified: aws.ToTime(p.LastModified).Format(time.RFC3339),
-			ETag:         aws.ToString(p.ETag),
+			ETag:         etag,
 			Size:         aws.ToInt64(p.Size),
 		})
 	}
