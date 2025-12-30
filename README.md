@@ -216,6 +216,8 @@ curl -H "Authorization: Bearer your-api-token" https://your-domain/api/files
 - `idGroup` - 指定账户 ID
 - `expirationDays` - 文件有效期（天），不填或 -1=使用系统默认，0=永久，>0=指定天数
 
+> 文件上传后会自动重命名为 `{uuid}_{timestamp}.{ext}` 格式，确保文件名唯一。
+
 **GET /api/link** / **DELETE /api/file**
 - `idGroup` - 账户 ID（必填）
 - `key` - 文件路径（必填）

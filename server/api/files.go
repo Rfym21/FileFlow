@@ -85,22 +85,20 @@ func Upload(c *gin.Context) {
 		expirationDays = -1 // 使用默认设置
 	}
 
-	// 生成文件路径
+	// 生成文件路径（始终使用 uuid+时间戳 重命名）
 	customPath := c.PostForm("path")
+	ext := filepath.Ext(header.Filename)
+	newFilename := fmt.Sprintf("%s_%d%s", uuid.New().String(), time.Now().UnixMilli(), ext)
+
 	var key string
 	if customPath != "" {
-		// 自定义路径 + 原始文件名
+		// 自定义路径 + 重命名后的文件名
 		customPath = strings.TrimPrefix(customPath, "/")
 		customPath = strings.TrimSuffix(customPath, "/")
-		key = fmt.Sprintf("%s/%s", customPath, header.Filename)
+		key = fmt.Sprintf("%s/%s", customPath, newFilename)
 	} else {
 		// 默认按日期组织
-		ext := filepath.Ext(header.Filename)
-		key = fmt.Sprintf("%s/%s%s",
-			time.Now().Format("2006/01/02"),
-			uuid.New().String(),
-			ext,
-		)
+		key = fmt.Sprintf("%s/%s", time.Now().Format("2006/01/02"), newFilename)
 	}
 
 	contentType := header.Header.Get("Content-Type")
