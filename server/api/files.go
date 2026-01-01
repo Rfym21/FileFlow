@@ -2,7 +2,9 @@ package api
 
 import (
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -14,6 +16,107 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
+
+// DownloadResult URL 下载结果
+type DownloadResult struct {
+	Body        io.ReadCloser
+	Size        int64
+	ContentType string
+	Ext         string
+}
+
+// downloadFromURL 从 URL 下载文件
+func downloadFromURL(rawURL string) (*DownloadResult, error) {
+	// 验证 URL 格式
+	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
+		return nil, fmt.Errorf("无效的 URL，必须以 http:// 或 https:// 开头")
+	}
+
+	// 创建 HTTP 客户端（120秒超时）
+	client := &http.Client{
+		Timeout: 120 * time.Second,
+	}
+
+	// 发起 GET 请求
+	resp, err := client.Get(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("下载失败: %w", err)
+	}
+
+	// 检查响应状态
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("下载失败，HTTP 状态码: %d", resp.StatusCode)
+	}
+
+	// 获取 Content-Type
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	// 确定文件扩展名（优先 URL 路径）
+	ext := getExtFromURL(rawURL)
+	if ext == "" {
+		ext = getExtFromContentType(contentType)
+	}
+
+	return &DownloadResult{
+		Body:        resp.Body,
+		Size:        resp.ContentLength,
+		ContentType: contentType,
+		Ext:         ext,
+	}, nil
+}
+
+// getExtFromURL 从 URL 路径提取扩展名
+func getExtFromURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return filepath.Ext(parsed.Path)
+}
+
+// getExtFromContentType 从 Content-Type 推断扩展名
+func getExtFromContentType(contentType string) string {
+	// 移除参数部分（如 charset）
+	if idx := strings.Index(contentType, ";"); idx != -1 {
+		contentType = strings.TrimSpace(contentType[:idx])
+	}
+
+	mimeMap := map[string]string{
+		"image/jpeg":              ".jpg",
+		"image/png":               ".png",
+		"image/gif":               ".gif",
+		"image/webp":              ".webp",
+		"image/svg+xml":           ".svg",
+		"image/x-icon":            ".ico",
+		"image/bmp":               ".bmp",
+		"video/mp4":               ".mp4",
+		"video/webm":              ".webm",
+		"video/quicktime":         ".mov",
+		"audio/mpeg":              ".mp3",
+		"audio/wav":               ".wav",
+		"audio/ogg":               ".ogg",
+		"application/pdf":         ".pdf",
+		"application/zip":         ".zip",
+		"application/x-gzip":      ".gz",
+		"application/x-tar":       ".tar",
+		"text/plain":              ".txt",
+		"text/html":               ".html",
+		"text/css":                ".css",
+		"application/javascript":  ".js",
+		"application/json":        ".json",
+		"application/xml":         ".xml",
+		"application/octet-stream": "",
+	}
+
+	if ext, ok := mimeMap[contentType]; ok {
+		return ext
+	}
+	return ""
+}
 
 // GetFiles 获取文件列表（懒加载+分页）
 func GetFiles(c *gin.Context) {
@@ -60,13 +163,52 @@ func GetFiles(c *gin.Context) {
 }
 
 // Upload 上传文件（可指定账户，不指定则智能选择）
+// 支持两种方式：file 表单字段上传文件，或 url 参数从远程下载后上传
 func Upload(c *gin.Context) {
-	file, header, err := c.Request.FormFile("file")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "未找到上传文件"})
+	var fileReader io.Reader
+	var fileSize int64
+	var contentType string
+	var ext string
+
+	// 获取 url 参数
+	urlParam := c.PostForm("url")
+	// 检查是否有 file 表单字段
+	file, header, fileErr := c.Request.FormFile("file")
+	hasFile := fileErr == nil
+
+	// 互斥校验：url 和 file 只能二选一
+	if urlParam != "" && hasFile {
+		file.Close()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "url 和 file 参数不能同时提供，请选择其一"})
 		return
 	}
-	defer file.Close()
+
+	if urlParam != "" {
+		// 从 URL 下载文件
+		downloadResult, err := downloadFromURL(urlParam)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		defer downloadResult.Body.Close()
+
+		fileReader = downloadResult.Body
+		fileSize = downloadResult.Size
+		contentType = downloadResult.ContentType
+		ext = downloadResult.Ext
+	} else if hasFile {
+		// file 表单处理逻辑
+		defer file.Close()
+
+		fileReader = file
+		fileSize = header.Size
+		contentType = header.Header.Get("Content-Type")
+		ext = filepath.Ext(header.Filename)
+	} else {
+		// 两者都没有提供
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请提供 file 或 url 参数"})
+		return
+	}
 
 	// 指定账户ID（可选，取第一个）
 	idGroup := c.PostForm("idGroup")
@@ -87,7 +229,9 @@ func Upload(c *gin.Context) {
 
 	// 生成文件路径（始终使用 uuid+时间戳 重命名）
 	customPath := c.PostForm("path")
-	ext := filepath.Ext(header.Filename)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
 	newFilename := fmt.Sprintf("%s_%d%s", uuid.New().String(), time.Now().UnixMilli(), ext)
 
 	var key string
@@ -101,18 +245,14 @@ func Upload(c *gin.Context) {
 		key = fmt.Sprintf("%s/%s", time.Now().Format("2006/01/02"), newFilename)
 	}
 
-	contentType := header.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-
 	var result *service.UploadResult
+	var err error
 	if accountID != "" {
 		// 上传到指定账户（前端上传检查 client_upload 权限）
-		result, err = service.UploadToAccountForClient(c.Request.Context(), accountID, key, file, contentType)
+		result, err = service.UploadToAccountForClient(c.Request.Context(), accountID, key, fileReader, contentType)
 	} else {
 		// 智能上传（自动选择具有 client_upload 权限的账户）
-		result, err = service.SmartUploadForClient(c.Request.Context(), key, file, header.Size, contentType)
+		result, err = service.SmartUploadForClient(c.Request.Context(), key, fileReader, fileSize, contentType)
 	}
 
 	if err != nil {

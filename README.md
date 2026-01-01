@@ -211,7 +211,8 @@ curl -H "Authorization: Bearer your-api-token" https://your-domain/api/files
 - `limit` - 每页数量（默认 50，最大 100）
 
 **POST /api/upload**（multipart/form-data）
-- `file` - 上传的文件（必填）
+- `file` - 上传的文件（与 url 二选一）
+- `url` - 远程文件 URL，从该地址下载后上传（与 file 二选一）
 - `path` - 自定义存储路径
 - `idGroup` - 指定账户 ID
 - `expirationDays` - 文件有效期（天），不填或 -1=使用系统默认，0=永久，>0=指定天数

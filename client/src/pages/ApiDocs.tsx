@@ -196,7 +196,7 @@ curl -X GET "${baseUrl}/api/files?idGroup=xxx&prefix=images/&limit=20" \\
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-muted-foreground">上传文件（可指定账户，不指定则智能选择）</p>
+            <p className="text-muted-foreground">上传文件（可指定账户，不指定则智能选择）。支持两种方式：直接上传文件或从 URL 下载后上传。</p>
             <div>
               <p className="text-sm font-medium mb-2">请求参数（multipart/form-data）</p>
               <div className="overflow-x-auto">
@@ -213,8 +213,14 @@ curl -X GET "${baseUrl}/api/files?idGroup=xxx&prefix=images/&limit=20" \\
                     <tr>
                       <td className="py-2 pr-4"><code>file</code></td>
                       <td className="py-2 pr-4 text-muted-foreground">file</td>
-                      <td className="py-2 pr-4 text-muted-foreground">是</td>
-                      <td className="py-2 text-muted-foreground">要上传的文件</td>
+                      <td className="py-2 pr-4 text-muted-foreground">二选一</td>
+                      <td className="py-2 text-muted-foreground">要上传的文件（与 url 参数互斥）</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 pr-4"><code>url</code></td>
+                      <td className="py-2 pr-4 text-muted-foreground">string</td>
+                      <td className="py-2 pr-4 text-muted-foreground">二选一</td>
+                      <td className="py-2 text-muted-foreground">远程文件 URL，从该地址下载后上传（与 file 参数互斥）</td>
                     </tr>
                     <tr>
                       <td className="py-2 pr-4"><code>path</code></td>
@@ -241,10 +247,16 @@ curl -X GET "${baseUrl}/api/files?idGroup=xxx&prefix=images/&limit=20" \\
             <div>
               <p className="text-sm font-medium mb-2">请求示例</p>
               <pre className="bg-muted p-4 rounded-lg text-sm overflow-x-auto">
-{`# 智能上传（自动选择账户，使用默认有效期）
+{`# 方式一：直接上传文件
 curl -X POST "${baseUrl}/api/upload" \\
   -H "Authorization: Bearer your-api-token" \\
   -F "file=@/path/to/image.jpg" \\
+  -F "path=images/2024"
+
+# 方式二：从 URL 下载后上传
+curl -X POST "${baseUrl}/api/upload" \\
+  -H "Authorization: Bearer your-api-token" \\
+  -F "url=https://example.com/image.png" \\
   -F "path=images/2024"
 
 # 指定账户上传 + 设置 7 天后过期
