@@ -381,10 +381,11 @@ func GetSettings() Settings {
 	if settings.SyncInterval <= 0 {
 		settings.SyncInterval = 5
 	}
-	// ImgBB 默认开启且优先（只在首次初始化时）
-	if data.Settings.SyncInterval == 0 && !data.Settings.ImgBBEnabled {
-		settings.ImgBBEnabled = true
-		settings.ImgBBPriority = true
+	if settings.DefaultExpirationDays <= 0 {
+		settings.DefaultExpirationDays = 30
+	}
+	if settings.ExpirationCheckMinutes <= 0 {
+		settings.ExpirationCheckMinutes = 720
 	}
 	return settings
 }

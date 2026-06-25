@@ -284,6 +284,25 @@ func (b *SQLiteBackend) Load() (*Data, error) {
 		data.Settings.ExpirationCheckMinutes = 720
 	}
 
+	// 加载 ImgBB 配置
+	var imgbbEnabled sql.NullString
+	err = b.db.QueryRow(`SELECT value FROM settings WHERE key = 'imgbb_enabled'`).Scan(&imgbbEnabled)
+	if err == nil && imgbbEnabled.Valid {
+		data.Settings.ImgBBEnabled = imgbbEnabled.String == "true"
+	} else {
+		// 默认启用 ImgBB
+		data.Settings.ImgBBEnabled = true
+	}
+
+	var imgbbPriority sql.NullString
+	err = b.db.QueryRow(`SELECT value FROM settings WHERE key = 'imgbb_priority'`).Scan(&imgbbPriority)
+	if err == nil && imgbbPriority.Valid {
+		data.Settings.ImgBBPriority = imgbbPriority.String == "true"
+	} else {
+		// 默认优先使用 ImgBB
+		data.Settings.ImgBBPriority = true
+	}
+
 	// 加载 webdav_credentials
 	rows, err = b.db.Query(`
 		SELECT id, username, password, account_id, description,
@@ -470,6 +489,25 @@ func (b *SQLiteBackend) Save(data *Data) error {
 		fmt.Sprintf("%d", data.Settings.ExpirationCheckMinutes))
 	if err != nil {
 		return fmt.Errorf("保存 settings 失败: %w", err)
+	}
+
+	// 保存 ImgBB 配置
+	imgbbEnabledVal := "false"
+	if data.Settings.ImgBBEnabled {
+		imgbbEnabledVal = "true"
+	}
+	_, err = tx.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('imgbb_enabled', ?)`, imgbbEnabledVal)
+	if err != nil {
+		return fmt.Errorf("保存 imgbb_enabled 失败: %w", err)
+	}
+
+	imgbbPriorityVal := "false"
+	if data.Settings.ImgBBPriority {
+		imgbbPriorityVal = "true"
+	}
+	_, err = tx.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('imgbb_priority', ?)`, imgbbPriorityVal)
+	if err != nil {
+		return fmt.Errorf("保存 imgbb_priority 失败: %w", err)
 	}
 
 	// 清空并重新插入 webdav_credentials
