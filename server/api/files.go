@@ -283,11 +283,32 @@ func Upload(c *gin.Context) {
 			imgbbFileName = generateFilenameFromURL(urlParam, getExtFromURL(urlParam))
 			imgbbFileSize = 0 // URL 上传暂时无法获取大小
 			imgbbResult, err = service.UploadURLToImgBB(urlParam, imgbbExpirationDays, 60*time.Second)
+
+			// ImgBB URL 上传失败，尝试本地下载后再上传到 ImgBB
+			if err != nil {
+				fmt.Printf("[Upload] ImgBB URL 上传失败，尝试本地下载后上传: %v\n", err)
+				downloadResult, downloadErr := downloadFromURL(urlParam)
+				if downloadErr == nil {
+					defer downloadResult.Body.Close()
+					imgbbFileName = generateFilenameFromURL(urlParam, downloadResult.Ext)
+					imgbbFileSize = downloadResult.Size
+					imgbbResult, err = service.UploadToImgBB(downloadResult.Body, imgbbExpirationDays, 60*time.Second)
+					if err == nil {
+						fmt.Printf("[Upload] ImgBB 文件上传成功（URL回退模式）\n")
+					} else {
+						fmt.Printf("[Upload] ImgBB 文件上传也失败，最终回退到 R2: %v\n", err)
+						// 需要重新下载用于 R2 上传
+						downloadResult = nil
+					}
+				} else {
+					fmt.Printf("[Upload] 下载文件失败，直接回退到 R2: %v\n", downloadErr)
+				}
+			}
 		}
 
 		if err != nil {
 			// ImgBB 失败，回退到 R2
-			fmt.Printf("[Upload] ImgBB 上传失败，回退到 R2: %v\n", err)
+			fmt.Printf("[Upload] 最终回退到 R2 上传\n")
 			if hasFile {
 				// 需要重新获取文件（因为已被读取）
 				file, header, fileErr = c.Request.FormFile("file")
@@ -297,7 +318,7 @@ func Upload(c *gin.Context) {
 				}
 				defer file.Close()
 			}
-			// URL 上传回退：继续到 R2 上传逻辑（不需要重新下载，后面会处理）
+			// URL 上传回退：继续到 R2 上传逻辑（可能需要重新下载）
 		} else {
 			// ImgBB 上传成功，记录到数据库
 			imgbbFile := store.ImgBBFile{
