@@ -118,6 +118,28 @@ func getExtFromContentType(contentType string) string {
 	return ""
 }
 
+// generateFilenameFromURL 从 URL 生成文件名
+func generateFilenameFromURL(rawURL string, ext string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "download" + ext
+	}
+
+	// 尝试从路径获取文件名
+	basename := filepath.Base(parsed.Path)
+	if basename != "" && basename != "/" && basename != "." {
+		return basename
+	}
+
+	// 使用域名作为文件名
+	hostname := parsed.Hostname()
+	if hostname != "" {
+		return hostname + ext
+	}
+
+	return "download" + ext
+}
+
 // GetFiles 获取文件列表（懒加载+分页）
 func GetFiles(c *gin.Context) {
 	idGroupStr := c.Query("idGroup")
@@ -207,20 +229,34 @@ func Upload(c *gin.Context) {
 		actualExpirationDays = settings.DefaultExpirationDays
 	}
 
-	// 检查是否应该使用 ImgBB（仅文件上传，URL 上传仍用 R2）
+	// 检查是否应该使用 ImgBB
 	settings := store.GetSettings()
 	useImgBB := false
 	imgbbExpirationDays := actualExpirationDays
-	if settings.ImgBBEnabled && hasFile && urlParam == "" {
-		// 获取文件类型信息
-		fileContentType := header.Header.Get("Content-Type")
-		fileExt := filepath.Ext(header.Filename)
+	var downloadResult *DownloadResult
+
+	if settings.ImgBBEnabled && settings.ImgBBPriority {
+		var fileContentType string
+		var fileExt string
+
+		if hasFile {
+			// 直接文件上传
+			fileContentType = header.Header.Get("Content-Type")
+			fileExt = filepath.Ext(header.Filename)
+		} else if urlParam != "" {
+			// URL 上传：简单判断是否为图片 URL（从扩展名）
+			fileExt = getExtFromURL(urlParam)
+			// 如果扩展名是图片类型，直接使用 ImgBB URL 上传
+			if isImageExtension(fileExt) {
+				fileContentType = "image/" + strings.TrimPrefix(fileExt, ".")
+			}
+		}
 
 		// 检查是否为图片类型
 		isImage := strings.HasPrefix(fileContentType, "image/") ||
 			(fileContentType == "" && isImageExtension(fileExt))
 
-		if isImage && settings.ImgBBPriority {
+		if isImage {
 			// 优先使用 ImgBB，检查是否支持该到期时间
 			if closestDays, ok := service.FindClosestImgBBExpiration(actualExpirationDays); ok {
 				useImgBB = true
@@ -231,27 +267,45 @@ func Upload(c *gin.Context) {
 
 	// 如果使用 ImgBB
 	if useImgBB {
-		defer file.Close()
-		imgbbResult, err := service.UploadToImgBB(file, imgbbExpirationDays, 60*time.Second)
-		if err != nil {
-			// ImgBB 失败，回退到 R2（需要重新获取文件）
-			fmt.Printf("[Upload] ImgBB 上传失败，回退到 R2: %v\n", err)
-			// 由于 multipart.File 已被读取，无法 Seek，需要重新从请求中获取
-			file, header, fileErr = c.Request.FormFile("file")
-			if fileErr != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "ImgBB 失败且无法回退到 R2: " + fileErr.Error()})
-				return
-			}
+		var imgbbResult *service.ImgBBUploadResult
+		var err error
+		var imgbbFileName string
+		var imgbbFileSize int64
+
+		if hasFile {
+			// 直接文件上传
 			defer file.Close()
-			// 继续执行 R2 上传逻辑
+			imgbbFileName = header.Filename
+			imgbbFileSize = header.Size
+			imgbbResult, err = service.UploadToImgBB(file, imgbbExpirationDays, 60*time.Second)
+		} else if urlParam != "" {
+			// URL 上传：让 ImgBB 直接从 URL 下载
+			imgbbFileName = generateFilenameFromURL(urlParam, getExtFromURL(urlParam))
+			imgbbFileSize = 0 // URL 上传暂时无法获取大小
+			imgbbResult, err = service.UploadURLToImgBB(urlParam, imgbbExpirationDays, 60*time.Second)
+		}
+
+		if err != nil {
+			// ImgBB 失败，回退到 R2
+			fmt.Printf("[Upload] ImgBB 上传失败，回退到 R2: %v\n", err)
+			if hasFile {
+				// 需要重新获取文件（因为已被读取）
+				file, header, fileErr = c.Request.FormFile("file")
+				if fileErr != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "ImgBB 失败且无法回退到 R2: " + fileErr.Error()})
+					return
+				}
+				defer file.Close()
+			}
+			// URL 上传回退：继续到 R2 上传逻辑（不需要重新下载，后面会处理）
 		} else {
 			// ImgBB 上传成功，记录到数据库
 			imgbbFile := store.ImgBBFile{
 				ID:         uuid.New().String(),
-				FileName:   header.Filename,
+				FileName:   imgbbFileName,
 				URL:        imgbbResult.DirectURL,
 				DeleteURL:  imgbbResult.DeleteURL,
-				Size:       header.Size,
+				Size:       imgbbFileSize,
 				UploadedAt: time.Now().Format(time.RFC3339),
 			}
 			if err := store.AddImgBBFile(imgbbFile); err != nil {
@@ -264,7 +318,7 @@ func Upload(c *gin.Context) {
 				"key":       imgbbResult.DirectURL,
 				"url":       imgbbResult.DirectURL,
 				"deleteUrl": imgbbResult.DeleteURL,
-				"size":      header.Size,
+				"size":      imgbbFileSize,
 				"provider":  "imgbb",
 			})
 			return
@@ -278,11 +332,14 @@ func Upload(c *gin.Context) {
 	var ext string
 
 	if urlParam != "" {
-		// 从 URL 下载文件
-		downloadResult, err := downloadFromURL(urlParam)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
+		// 从 URL 下载文件（如果还没下载过）
+		if downloadResult == nil {
+			var err error
+			downloadResult, err = downloadFromURL(urlParam)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
 		}
 		defer downloadResult.Body.Close()
 
