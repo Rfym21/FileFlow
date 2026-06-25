@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { getSettings, updateSettings, type Settings } from "@/lib/api";
-import { RefreshCw, Save, Clock, Globe, Trash2 } from "lucide-react";
+import { RefreshCw, Save, Clock, Globe, Trash2, Image } from "lucide-react";
 
 export default function SystemSettings() {
   const [settings, setSettings] = useState<Settings>({
@@ -15,6 +15,8 @@ export default function SystemSettings() {
     endpointProxyUrl: "",
     defaultExpirationDays: 30,
     expirationCheckMinutes: 720,
+    imgbbEnabled: true,
+    imgbbPriority: true,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -218,6 +220,58 @@ export default function SystemSettings() {
             <p className="text-xs text-muted-foreground">
               建议设置为 60-720 分钟（1-12 小时），过于频繁可能影响系统性能
             </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ImgBB 上传设置 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Image className="h-5 w-5" />
+            ImgBB 图床
+          </CardTitle>
+          <CardDescription>
+            使用 ImgBB 作为免费图床，适合临时分享和短期存储
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label>启用 ImgBB 上传</Label>
+              <p className="text-sm text-muted-foreground">
+                开启后，可以使用 ImgBB 作为上传目标
+              </p>
+            </div>
+            <Switch
+              checked={settings.imgbbEnabled}
+              onCheckedChange={(checked) =>
+                setSettings({ ...settings, imgbbEnabled: checked })
+              }
+            />
+          </div>
+
+          {settings.imgbbEnabled && (
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>优先使用 ImgBB</Label>
+                <p className="text-sm text-muted-foreground">
+                  开启后，上传时优先使用 ImgBB（仅支持特定到期时间）
+                </p>
+              </div>
+              <Switch
+                checked={settings.imgbbPriority}
+                onCheckedChange={(checked) =>
+                  setSettings({ ...settings, imgbbPriority: checked })
+                }
+              />
+            </div>
+          )}
+
+          <div className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
+            <p className="font-medium mb-1">ImgBB 支持的到期时间：</p>
+            <p>0天（永久）、1-6天、7天（1周）、14天（2周）、21天（3周）、30天（1月）、60天（2月）、90天（3月）、120天（4月）、150天（5月）、180天（6月）</p>
+            <p className="mt-2">如果设置的到期时间不在上述列表中，系统会自动选择最接近的较小值，或回退到 R2 存储。</p>
           </div>
         </CardContent>
       </Card>

@@ -24,6 +24,7 @@ func SetupRouter(r *gin.Engine) {
 
 		// 文件操作（需要相应权限）
 		protected.GET("/files", middleware.RequirePermission("read"), GetFiles)
+		protected.GET("/imgbb-files", middleware.RequirePermission("read"), GetImgBBFiles)
 		protected.POST("/upload", middleware.RequirePermission("write"), Upload)
 		protected.DELETE("/file", middleware.RequirePermission("delete"), DeleteFile)
 		protected.GET("/link", middleware.RequirePermission("read"), GetLink)

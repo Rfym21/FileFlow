@@ -90,7 +90,7 @@ export default function FileUploader({
   const [isDragging, setIsDragging] = useState(false);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [accounts, setAccounts] = useState<AccountFull[]>([]);
-  const [selectedAccountId, setSelectedAccountId] = useState<string>(defaultAccountId || "");
+  const [selectedAccountId, setSelectedAccountId] = useState<string>(defaultAccountId || "imgbb");
   const [customPath, setCustomPath] = useState<string>(defaultPath || "");
   const [expirationDays, setExpirationDays] = useState<number>(defaultExpirationDays);
   const [customExpirationDays, setCustomExpirationDays] = useState<string>("30");
@@ -98,7 +98,7 @@ export default function FileUploader({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
   const customPathRef = useRef<string>(defaultPath || "");
-  const selectedAccountIdRef = useRef<string>(defaultAccountId || "");
+  const selectedAccountIdRef = useRef<string>(defaultAccountId || "imgbb");
   const expirationDaysRef = useRef<number>(defaultExpirationDays);
 
   // 加载账户列表
@@ -207,7 +207,22 @@ export default function FileUploader({
    * 添加文件到上传队列
    */
   const addFilesToUpload = (files: File[]) => {
-    const newUploads: UploadItem[] = files.map((file) => ({
+    // 如果选择了 ImgBB，过滤非图片文件
+    const filteredFiles = selectedAccountIdRef.current === "imgbb"
+      ? files.filter((file) => {
+          const isImage = isImageFile(file);
+          if (!isImage) {
+            toast.error(`${file.name} 不是图片文件，ImgBB 仅支持图片格式`);
+          }
+          return isImage;
+        })
+      : files;
+
+    if (filteredFiles.length === 0) {
+      return;
+    }
+
+    const newUploads: UploadItem[] = filteredFiles.map((file) => ({
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       file,
       status: "pending",
@@ -323,13 +338,18 @@ export default function FileUploader({
             className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="">自动选择（智能分配）</option>
+            <option value="imgbb">ImgBB 图床（仅图片）</option>
             {availableAccounts.map((account) => (
               <option key={account.id} value={account.id}>
                 {account.name} ({formatBytes(account.usage.sizeBytes)} / {formatBytes(account.quota.maxSizeBytes)})
               </option>
             ))}
           </select>
-          <p className="text-xs text-muted-foreground mt-1">仅显示已启用前端上传权限的账户</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {selectedAccountId === "imgbb"
+              ? "ImgBB 仅支持图片文件（jpg, png, gif, webp, bmp, svg）"
+              : "仅显示已启用前端上传权限的账户"}
+          </p>
         </div>
         <div>
           <label className="text-sm font-medium mb-1.5 block">上传目录</label>

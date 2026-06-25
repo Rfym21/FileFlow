@@ -95,6 +95,16 @@ type FileExpiration struct {
 	CreatedAt string `json:"createdAt"` // 创建时间
 }
 
+// ImgBBFile ImgBB 上传文件记录
+type ImgBBFile struct {
+	ID        string `json:"id"`        // 记录ID
+	FileName  string `json:"fileName"`  // 原始文件名
+	URL       string `json:"url"`       // 直接访问链接
+	DeleteURL string `json:"deleteUrl"` // 删除链接
+	Size      int64  `json:"size"`      // 文件大小（字节）
+	UploadedAt string `json:"uploadedAt"` // 上传时间 (ISO 8601)
+}
+
 // Settings 系统设置
 type Settings struct {
 	SyncInterval           int    `json:"syncInterval"`           // 同步间隔（分钟），默认 5
@@ -102,6 +112,8 @@ type Settings struct {
 	EndpointProxyURL       string `json:"endpointProxyUrl"`       // 反代 URL
 	DefaultExpirationDays  int    `json:"defaultExpirationDays"`  // 默认文件到期天数，默认 30，0 表示永久
 	ExpirationCheckMinutes int    `json:"expirationCheckMinutes"` // 到期检查间隔（分钟），默认 720（12小时）
+	ImgBBEnabled           bool   `json:"imgbbEnabled"`           // 启用 ImgBB 上传接口
+	ImgBBPriority          bool   `json:"imgbbPriority"`          // ImgBB 优先（启用时优先使用 ImgBB）
 }
 
 // Data 存储的完整数据结构
@@ -110,6 +122,7 @@ type Data struct {
 	Tokens            []Token            `json:"tokens"`
 	WebDAVCredentials []WebDAVCredential `json:"webdavCredentials"`
 	FileExpirations   []FileExpiration   `json:"fileExpirations"`
+	ImgBBFiles        []ImgBBFile        `json:"imgbbFiles"`
 	Settings          Settings           `json:"settings"`
 }
 

@@ -197,6 +197,16 @@ curl -X GET "${baseUrl}/api/files?idGroup=xxx&prefix=images/&limit=20" \\
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-muted-foreground">上传文件（可指定账户，不指定则智能选择）。支持两种方式：直接上传文件或从 URL 下载后上传。</p>
+
+            <div className="rounded-lg bg-blue-50 dark:bg-blue-950 p-3 text-sm">
+              <p className="font-medium text-blue-900 dark:text-blue-100 mb-1">💡 ImgBB 图床支持</p>
+              <p className="text-blue-800 dark:text-blue-200">
+                系统已集成 ImgBB 免费图床。当启用 ImgBB 优先模式且上传<strong>图片类型</strong>文件时，将自动使用 ImgBB（失败则回退到 R2）。
+                仅支持图片格式（jpg, png, gif, webp, bmp, svg），URL 上传始终使用 R2。
+                响应中 <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">provider: "imgbb"</code> 表示使用了 ImgBB。
+              </p>
+            </div>
+
             <div>
               <p className="text-sm font-medium mb-2">请求参数（multipart/form-data）</p>
               <div className="overflow-x-auto">
@@ -275,15 +285,32 @@ curl -X POST "${baseUrl}/api/upload" \\
             </div>
             <div>
               <p className="text-sm font-medium mb-2">响应示例</p>
-              <pre className="bg-muted p-4 rounded-lg text-sm overflow-x-auto">
+              <p className="text-xs text-muted-foreground mb-2">R2 存储响应：</p>
+              <pre className="bg-muted p-4 rounded-lg text-sm overflow-x-auto mb-4">
 {`{
   "id": "xxx-xxx-xxx",
-  "accountName": "主账户",
+  "accountId": "xxx-xxx-xxx",
   "key": "images/2024/image.jpg",
   "size": 102400,
   "url": "https://pub-xxx.r2.dev/images/2024/image.jpg"
 }`}
               </pre>
+              <p className="text-xs text-muted-foreground mb-2">ImgBB 图床响应（图片文件且启用优先模式）：</p>
+              <pre className="bg-muted p-4 rounded-lg text-sm overflow-x-auto">
+{`{
+  "id": "imgbb",
+  "accountId": "imgbb",
+  "key": "https://i.ibb.co/xxxxx/image.jpg",
+  "url": "https://i.ibb.co/xxxxx/image.jpg",
+  "deleteUrl": "https://ibb.co/xxxxx/delete-token",
+  "size": 102400,
+  "provider": "imgbb"
+}`}
+              </pre>
+              <p className="text-xs text-muted-foreground mt-2">
+                注意：ImgBB 响应中 <code className="bg-muted px-1 rounded">deleteUrl</code> 用于删除文件，
+                <code className="bg-muted px-1 rounded">provider</code> 字段标识使用的存储服务。
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -298,6 +325,15 @@ curl -X POST "${baseUrl}/api/upload" \\
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-muted-foreground">获取文件的公开访问链接</p>
+
+            <div className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
+              <p className="font-medium mb-1">💡 ImgBB 文件支持</p>
+              <p>
+                对于 ImgBB 上传的文件（<code className="bg-background px-1 rounded">idGroup=imgbb</code>），
+                <code className="bg-background px-1 rounded">key</code> 就是直接访问 URL，接口会原样返回。
+              </p>
+            </div>
+
             <div>
               <p className="text-sm font-medium mb-2">查询参数</p>
               <div className="overflow-x-auto">
@@ -355,6 +391,16 @@ curl -X POST "${baseUrl}/api/upload" \\
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-muted-foreground">删除文件</p>
+
+            <div className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
+              <p className="font-medium mb-1">💡 ImgBB 文件删除</p>
+              <p>
+                对于 ImgBB 上传的文件，需要使用上传时返回的 <code className="bg-background px-1 rounded">deleteUrl</code> 作为
+                <code className="bg-background px-1 rounded">key</code> 参数，<code className="bg-background px-1 rounded">idGroup</code>
+                设置为 <code className="bg-background px-1 rounded">imgbb</code>。
+              </p>
+            </div>
+
             <div>
               <p className="text-sm font-medium mb-2">查询参数</p>
               <div className="overflow-x-auto">
@@ -386,8 +432,14 @@ curl -X POST "${baseUrl}/api/upload" \\
             </div>
             <div>
               <p className="text-sm font-medium mb-2">请求示例</p>
-              <pre className="bg-muted p-4 rounded-lg text-sm overflow-x-auto">
+              <p className="text-xs text-muted-foreground mb-2">删除 R2 文件：</p>
+              <pre className="bg-muted p-4 rounded-lg text-sm overflow-x-auto mb-4">
 {`curl -X DELETE "${baseUrl}/api/file?idGroup=xxx&key=images/photo.jpg" \\
+  -H "Authorization: Bearer your-api-token"`}
+              </pre>
+              <p className="text-xs text-muted-foreground mb-2">删除 ImgBB 文件（使用上传时返回的 deleteUrl）：</p>
+              <pre className="bg-muted p-4 rounded-lg text-sm overflow-x-auto">
+{`curl -X DELETE "${baseUrl}/api/file?idGroup=imgbb&key=https://ibb.co/xxxxx/delete-token" \\
   -H "Authorization: Bearer your-api-token"`}
               </pre>
             </div>

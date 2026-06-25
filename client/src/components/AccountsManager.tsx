@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,7 +43,7 @@ import {
   type DeleteOldFilesResult,
 } from "@/lib/api";
 import { formatBytes, formatNumber } from "@/lib/utils";
-import { Plus, Pencil, Trash2, RefreshCw, X, Eraser, Copy, Check, Calendar } from "lucide-react";
+import { Pencil, Trash2, RefreshCw, X, Eraser, Copy, Check, Calendar } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 const PAGE_SIZE = 5;
@@ -74,7 +74,6 @@ const defaultAccountForm: AccountRequest = {
 export default function AccountsManager() {
   const [accounts, setAccounts] = useState<AccountFull[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<AccountRequest>(defaultAccountForm);
   const [submitting, setSubmitting] = useState(false);
@@ -173,22 +172,28 @@ export default function AccountsManager() {
   };
 
   const handleEdit = (account: AccountFull) => {
-    setEditingId(account.id);
-    setForm({
-      name: account.name,
-      isActive: account.isActive,
-      description: account.description,
-      accountId: account.accountId,
-      accessKeyId: account.accessKeyId,
-      secretAccessKey: account.secretAccessKey,
-      bucketName: account.bucketName,
-      endpoint: account.endpoint,
-      publicDomain: account.publicDomain,
-      apiToken: account.apiToken,
-      quota: account.quota,
-      permissions: account.permissions,
-    });
-    setShowForm(true);
+    if (editingId === account.id) {
+      // 如果点击的是当前正在编辑的账户，则关闭编辑表单
+      setEditingId(null);
+      setForm(defaultAccountForm);
+    } else {
+      // 否则打开该账户的编辑表单
+      setEditingId(account.id);
+      setForm({
+        name: account.name,
+        isActive: account.isActive,
+        description: account.description,
+        accountId: account.accountId,
+        accessKeyId: account.accessKeyId,
+        secretAccessKey: account.secretAccessKey,
+        bucketName: account.bucketName,
+        endpoint: account.endpoint,
+        publicDomain: account.publicDomain,
+        apiToken: account.apiToken,
+        quota: account.quota,
+        permissions: account.permissions,
+      });
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -214,7 +219,6 @@ export default function AccountsManager() {
   };
 
   const handleCancel = () => {
-    setShowForm(false);
     setEditingId(null);
     setForm(defaultAccountForm);
   };
@@ -331,195 +335,7 @@ export default function AccountsManager() {
               </div>
             )}
           </div>
-          <Button onClick={() => setShowForm(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            添加账户
-          </Button>
         </div>
-
-      {showForm && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>{editingId ? "编辑账户" : "添加账户"}</CardTitle>
-              <Button variant="ghost" size="icon" onClick={handleCancel}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>账户名称 *</Label>
-                <Input
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="例如: 主账户"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Cloudflare Account ID *</Label>
-                <Input
-                  value={form.accountId}
-                  onChange={(e) => setForm({ ...form, accountId: e.target.value })}
-                  placeholder="Cloudflare 账户 ID"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Access Key ID *</Label>
-                <Input
-                  value={form.accessKeyId}
-                  onChange={(e) => setForm({ ...form, accessKeyId: e.target.value })}
-                  placeholder="R2 Access Key ID"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Secret Access Key *</Label>
-                <Input
-                  type="password"
-                  value={form.secretAccessKey}
-                  onChange={(e) => setForm({ ...form, secretAccessKey: e.target.value })}
-                  placeholder="R2 Secret Access Key"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Bucket 名称 *</Label>
-                <Input
-                  value={form.bucketName}
-                  onChange={(e) => setForm({ ...form, bucketName: e.target.value })}
-                  placeholder="my-bucket"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Endpoint *</Label>
-                <Input
-                  value={form.endpoint}
-                  onChange={(e) => setForm({ ...form, endpoint: e.target.value })}
-                  placeholder="https://xxx.r2.cloudflarestorage.com"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Public Domain *</Label>
-                <Input
-                  value={form.publicDomain}
-                  onChange={(e) => setForm({ ...form, publicDomain: e.target.value })}
-                  placeholder="cdn.example.com"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>API Token (用于查询用量)</Label>
-                <Input
-                  type="password"
-                  value={form.apiToken}
-                  onChange={(e) => setForm({ ...form, apiToken: e.target.value })}
-                  placeholder="Cloudflare API Token"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>最大容量 (GB)</Label>
-                <Input
-                  type="number"
-                  value={form.quota.maxSizeBytes / 1024 / 1024 / 1024}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      quota: {
-                        ...form.quota,
-                        maxSizeBytes: parseFloat(e.target.value) * 1024 * 1024 * 1024,
-                      },
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>最大写入操作数</Label>
-                <Input
-                  type="number"
-                  value={form.quota.maxClassAOps}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      quota: {
-                        ...form.quota,
-                        maxClassAOps: parseInt(e.target.value),
-                      },
-                    })
-                  }
-                />
-              </div>
-            </div>
-            {/* 权限设置 */}
-            <div className="space-y-3">
-              <Label>权限设置</Label>
-              <div className="grid gap-3 md:grid-cols-4">
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="perm-webdav"
-                    checked={form.permissions?.webdav ?? true}
-                    onCheckedChange={(checked) =>
-                      setForm({
-                        ...form,
-                        permissions: { ...form.permissions, webdav: checked === true },
-                      })
-                    }
-                  />
-                  <Label htmlFor="perm-webdav" className="text-sm cursor-pointer">WebDAV</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="perm-auto-upload"
-                    checked={form.permissions?.autoUpload ?? true}
-                    onCheckedChange={(checked) =>
-                      setForm({
-                        ...form,
-                        permissions: { ...form.permissions, autoUpload: checked === true },
-                      })
-                    }
-                  />
-                  <Label htmlFor="perm-auto-upload" className="text-sm cursor-pointer">自动上传</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="perm-api-upload"
-                    checked={form.permissions?.apiUpload ?? true}
-                    onCheckedChange={(checked) =>
-                      setForm({
-                        ...form,
-                        permissions: { ...form.permissions, apiUpload: checked === true },
-                      })
-                    }
-                  />
-                  <Label htmlFor="perm-api-upload" className="text-sm cursor-pointer">API 上传</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="perm-client-upload"
-                    checked={form.permissions?.clientUpload ?? true}
-                    onCheckedChange={(checked) =>
-                      setForm({
-                        ...form,
-                        permissions: { ...form.permissions, clientUpload: checked === true },
-                      })
-                    }
-                  />
-                  <Label htmlFor="perm-client-upload" className="text-sm cursor-pointer">前端上传</Label>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                控制此账户可被使用的方式。取消勾选将禁止相应的访问方式。
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button onClick={handleSubmit} disabled={submitting}>
-                {submitting ? "保存中..." : "保存"}
-              </Button>
-              <Button variant="outline" onClick={handleCancel}>
-                取消
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       <div className="space-y-4">
         {accounts.map((account) => (
@@ -558,11 +374,12 @@ export default function AccountsManager() {
                         variant="ghost"
                         size="icon"
                         onClick={() => handleEdit(account)}
+                        className={editingId === account.id ? "bg-accent" : ""}
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>编辑账户</TooltipContent>
+                    <TooltipContent>{editingId === account.id ? "收起编辑" : "编辑账户"}</TooltipContent>
                   </Tooltip>
                   <AlertDialog>
                     <Tooltip>
@@ -663,6 +480,186 @@ export default function AccountsManager() {
                   <Badge variant="outline" className="text-xs text-muted-foreground">无权限</Badge>
                 )}
               </div>
+
+              {/* 编辑表单 - 展开在当前卡片内 */}
+              {editingId === account.id && (
+                <div className="pt-4 border-t space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">编辑账户信息</span>
+                    <Button variant="ghost" size="icon" onClick={handleCancel}>
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>账户名称 *</Label>
+                      <Input
+                        value={form.name}
+                        onChange={(e) => setForm({ ...form, name: e.target.value })}
+                        placeholder="例如: 主账户"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Cloudflare Account ID *</Label>
+                      <Input
+                        value={form.accountId}
+                        onChange={(e) => setForm({ ...form, accountId: e.target.value })}
+                        placeholder="Cloudflare 账户 ID"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Access Key ID *</Label>
+                      <Input
+                        value={form.accessKeyId}
+                        onChange={(e) => setForm({ ...form, accessKeyId: e.target.value })}
+                        placeholder="R2 Access Key ID"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Secret Access Key *</Label>
+                      <Input
+                        type="password"
+                        value={form.secretAccessKey}
+                        onChange={(e) => setForm({ ...form, secretAccessKey: e.target.value })}
+                        placeholder="R2 Secret Access Key"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Bucket 名称 *</Label>
+                      <Input
+                        value={form.bucketName}
+                        onChange={(e) => setForm({ ...form, bucketName: e.target.value })}
+                        placeholder="my-bucket"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Endpoint *</Label>
+                      <Input
+                        value={form.endpoint}
+                        onChange={(e) => setForm({ ...form, endpoint: e.target.value })}
+                        placeholder="https://xxx.r2.cloudflarestorage.com"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Public Domain *</Label>
+                      <Input
+                        value={form.publicDomain}
+                        onChange={(e) => setForm({ ...form, publicDomain: e.target.value })}
+                        placeholder="cdn.example.com"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>API Token (用于查询用量)</Label>
+                      <Input
+                        type="password"
+                        value={form.apiToken}
+                        onChange={(e) => setForm({ ...form, apiToken: e.target.value })}
+                        placeholder="Cloudflare API Token"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>最大容量 (GB)</Label>
+                      <Input
+                        type="number"
+                        value={form.quota.maxSizeBytes / 1024 / 1024 / 1024}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            quota: {
+                              ...form.quota,
+                              maxSizeBytes: parseFloat(e.target.value) * 1024 * 1024 * 1024,
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>最大写入操作数</Label>
+                      <Input
+                        type="number"
+                        value={form.quota.maxClassAOps}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            quota: {
+                              ...form.quota,
+                              maxClassAOps: parseInt(e.target.value),
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <Label>权限设置</Label>
+                    <div className="grid gap-3 md:grid-cols-4">
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`perm-webdav-${account.id}`}
+                          checked={form.permissions?.webdav ?? true}
+                          onCheckedChange={(checked) =>
+                            setForm({
+                              ...form,
+                              permissions: { ...form.permissions, webdav: checked === true },
+                            })
+                          }
+                        />
+                        <Label htmlFor={`perm-webdav-${account.id}`} className="text-sm cursor-pointer">WebDAV</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`perm-auto-upload-${account.id}`}
+                          checked={form.permissions?.autoUpload ?? true}
+                          onCheckedChange={(checked) =>
+                            setForm({
+                              ...form,
+                              permissions: { ...form.permissions, autoUpload: checked === true },
+                            })
+                          }
+                        />
+                        <Label htmlFor={`perm-auto-upload-${account.id}`} className="text-sm cursor-pointer">自动上传</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`perm-api-upload-${account.id}`}
+                          checked={form.permissions?.apiUpload ?? true}
+                          onCheckedChange={(checked) =>
+                            setForm({
+                              ...form,
+                              permissions: { ...form.permissions, apiUpload: checked === true },
+                            })
+                          }
+                        />
+                        <Label htmlFor={`perm-api-upload-${account.id}`} className="text-sm cursor-pointer">API 上传</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`perm-client-upload-${account.id}`}
+                          checked={form.permissions?.clientUpload ?? true}
+                          onCheckedChange={(checked) =>
+                            setForm({
+                              ...form,
+                              permissions: { ...form.permissions, clientUpload: checked === true },
+                            })
+                          }
+                        />
+                        <Label htmlFor={`perm-client-upload-${account.id}`} className="text-sm cursor-pointer">前端上传</Label>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      控制此账户可被使用的方式。取消勾选将禁止相应的访问方式。
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button onClick={handleSubmit} disabled={submitting}>
+                      {submitting ? "保存中..." : "保存"}
+                    </Button>
+                    <Button variant="outline" onClick={handleCancel}>
+                      取消
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         ))}

@@ -165,11 +165,6 @@ func GetFiles(c *gin.Context) {
 // Upload 上传文件（可指定账户，不指定则智能选择）
 // 支持两种方式：file 表单字段上传文件，或 url 参数从远程下载后上传
 func Upload(c *gin.Context) {
-	var fileReader io.Reader
-	var fileSize int64
-	var contentType string
-	var ext string
-
 	// 获取 url 参数
 	urlParam := c.PostForm("url")
 	// 检查是否有 file 表单字段
@@ -183,29 +178,7 @@ func Upload(c *gin.Context) {
 		return
 	}
 
-	if urlParam != "" {
-		// 从 URL 下载文件
-		downloadResult, err := downloadFromURL(urlParam)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		defer downloadResult.Body.Close()
-
-		fileReader = downloadResult.Body
-		fileSize = downloadResult.Size
-		contentType = downloadResult.ContentType
-		ext = downloadResult.Ext
-	} else if hasFile {
-		// file 表单处理逻辑
-		defer file.Close()
-
-		fileReader = file
-		fileSize = header.Size
-		contentType = header.Header.Get("Content-Type")
-		ext = filepath.Ext(header.Filename)
-	} else {
-		// 两者都没有提供
+	if !hasFile && urlParam == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请提供 file 或 url 参数"})
 		return
 	}
@@ -225,6 +198,108 @@ func Upload(c *gin.Context) {
 		}
 	} else {
 		expirationDays = -1 // 使用默认设置
+	}
+
+	// 解析实际到期天数（用于 ImgBB 判断）
+	actualExpirationDays := expirationDays
+	if actualExpirationDays == -1 {
+		settings := store.GetSettings()
+		actualExpirationDays = settings.DefaultExpirationDays
+	}
+
+	// 检查是否应该使用 ImgBB（仅文件上传，URL 上传仍用 R2）
+	settings := store.GetSettings()
+	useImgBB := false
+	imgbbExpirationDays := actualExpirationDays
+	if settings.ImgBBEnabled && hasFile && urlParam == "" {
+		// 获取文件类型信息
+		fileContentType := header.Header.Get("Content-Type")
+		fileExt := filepath.Ext(header.Filename)
+
+		// 检查是否为图片类型
+		isImage := strings.HasPrefix(fileContentType, "image/") ||
+			(fileContentType == "" && isImageExtension(fileExt))
+
+		if isImage && settings.ImgBBPriority {
+			// 优先使用 ImgBB，检查是否支持该到期时间
+			if closestDays, ok := service.FindClosestImgBBExpiration(actualExpirationDays); ok {
+				useImgBB = true
+				imgbbExpirationDays = closestDays // 使用最接近的 ImgBB 支持时间
+			}
+		}
+	}
+
+	// 如果使用 ImgBB
+	if useImgBB {
+		defer file.Close()
+		imgbbResult, err := service.UploadToImgBB(file, imgbbExpirationDays, 60*time.Second)
+		if err != nil {
+			// ImgBB 失败，回退到 R2（需要重新获取文件）
+			fmt.Printf("[Upload] ImgBB 上传失败，回退到 R2: %v\n", err)
+			// 由于 multipart.File 已被读取，无法 Seek，需要重新从请求中获取
+			file, header, fileErr = c.Request.FormFile("file")
+			if fileErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "ImgBB 失败且无法回退到 R2: " + fileErr.Error()})
+				return
+			}
+			defer file.Close()
+			// 继续执行 R2 上传逻辑
+		} else {
+			// ImgBB 上传成功，记录到数据库
+			imgbbFile := store.ImgBBFile{
+				ID:         uuid.New().String(),
+				FileName:   header.Filename,
+				URL:        imgbbResult.DirectURL,
+				DeleteURL:  imgbbResult.DeleteURL,
+				Size:       header.Size,
+				UploadedAt: time.Now().Format(time.RFC3339),
+			}
+			if err := store.AddImgBBFile(imgbbFile); err != nil {
+				fmt.Printf("[Upload] 保存 ImgBB 文件记录失败: %v\n", err)
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"id":        "imgbb",
+				"accountId": "imgbb",
+				"key":       imgbbResult.DirectURL,
+				"url":       imgbbResult.DirectURL,
+				"deleteUrl": imgbbResult.DeleteURL,
+				"size":      header.Size,
+				"provider":  "imgbb",
+			})
+			return
+		}
+	}
+
+	// R2 上传逻辑
+	var fileReader io.Reader
+	var fileSize int64
+	var contentType string
+	var ext string
+
+	if urlParam != "" {
+		// 从 URL 下载文件
+		downloadResult, err := downloadFromURL(urlParam)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		defer downloadResult.Body.Close()
+
+		fileReader = downloadResult.Body
+		fileSize = downloadResult.Size
+		contentType = downloadResult.ContentType
+		ext = downloadResult.Ext
+	} else if hasFile {
+		// file 表单处理逻辑
+		if !useImgBB {
+			defer file.Close()
+		}
+
+		fileReader = file
+		fileSize = header.Size
+		contentType = header.Header.Get("Content-Type")
+		ext = filepath.Ext(header.Filename)
 	}
 
 	// 生成文件路径（始终使用 uuid+时间戳 重命名）
@@ -296,6 +371,20 @@ func DeleteFile(c *gin.Context) {
 	// 删除对应的到期记录（如果存在）
 	service.DeleteFileExpirationRecord(accountID, key)
 
+	// 如果是 ImgBB 文件，删除数据库记录
+	if accountID == "imgbb" {
+		// 通过 deleteUrl 查找并删除记录
+		files := store.GetImgBBFiles()
+		for _, f := range files {
+			if f.DeleteURL == key {
+				if err := store.DeleteImgBBFile(f.ID); err != nil {
+					fmt.Printf("[DeleteFile] 删除 ImgBB 文件记录失败: %v\n", err)
+				}
+				break
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "删除成功"})
 }
 
@@ -319,6 +408,12 @@ func GetLink(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"url": url})
 }
 
+// GetImgBBFiles 获取 ImgBB 文件列表
+func GetImgBBFiles(c *gin.Context) {
+	files := store.GetImgBBFiles()
+	c.JSON(http.StatusOK, files)
+}
+
 // getFirstID 从逗号分隔的 ID 列表中获取第一个 ID
 func getFirstID(idGroup string) string {
 	if idGroup == "" {
@@ -329,6 +424,18 @@ func getFirstID(idGroup string) string {
 		return strings.TrimSpace(ids[0])
 	}
 	return ""
+}
+
+// isImageExtension 检查文件扩展名是否为图片类型
+func isImageExtension(ext string) bool {
+	ext = strings.ToLower(ext)
+	imageExts := []string{".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".ico"}
+	for _, imgExt := range imageExts {
+		if ext == imgExt {
+			return true
+		}
+	}
+	return false
 }
 
 // ClearBucket 清空账户的存储桶

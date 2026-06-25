@@ -381,6 +381,11 @@ func GetSettings() Settings {
 	if settings.SyncInterval <= 0 {
 		settings.SyncInterval = 5
 	}
+	// ImgBB 默认开启且优先（只在首次初始化时）
+	if data.Settings.SyncInterval == 0 && !data.Settings.ImgBBEnabled {
+		settings.ImgBBEnabled = true
+		settings.ImgBBPriority = true
+	}
 	return settings
 }
 
@@ -496,4 +501,55 @@ func DeleteFileExpirationsByAccountID(accountID string) error {
 	}
 	data.FileExpirations = remaining
 	return save()
+}
+
+// ========== ImgBB 文件管理 ==========
+
+// AddImgBBFile 添加 ImgBB 文件记录
+func AddImgBBFile(file ImgBBFile) error {
+	dataLock.Lock()
+	defer dataLock.Unlock()
+
+	data.ImgBBFiles = append(data.ImgBBFiles, file)
+	return save()
+}
+
+// GetImgBBFiles 获取所有 ImgBB 文件记录（按上传时间倒序）
+func GetImgBBFiles() []ImgBBFile {
+	dataLock.RLock()
+	defer dataLock.RUnlock()
+
+	// 倒序返回（最新的在前）
+	files := make([]ImgBBFile, len(data.ImgBBFiles))
+	for i, f := range data.ImgBBFiles {
+		files[len(data.ImgBBFiles)-1-i] = f
+	}
+	return files
+}
+
+// GetImgBBFileByID 按 ID 获取 ImgBB 文件记录
+func GetImgBBFileByID(id string) (*ImgBBFile, error) {
+	dataLock.RLock()
+	defer dataLock.RUnlock()
+
+	for _, file := range data.ImgBBFiles {
+		if file.ID == id {
+			return &file, nil
+		}
+	}
+	return nil, fmt.Errorf("ImgBB 文件记录不存在")
+}
+
+// DeleteImgBBFile 删除 ImgBB 文件记录
+func DeleteImgBBFile(id string) error {
+	dataLock.Lock()
+	defer dataLock.Unlock()
+
+	for i, file := range data.ImgBBFiles {
+		if file.ID == id {
+			data.ImgBBFiles = append(data.ImgBBFiles[:i], data.ImgBBFiles[i+1:]...)
+			return save()
+		}
+	}
+	return fmt.Errorf("ImgBB 文件记录不存在")
 }

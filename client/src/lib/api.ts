@@ -402,6 +402,21 @@ export async function getFileLink(
   );
 }
 
+// ==================== ImgBB 文件 API ====================
+
+export interface ImgBBFile {
+  id: string;
+  fileName: string;
+  url: string;
+  deleteUrl: string;
+  size: number;
+  uploadedAt: string;
+}
+
+export async function getImgBBFiles(): Promise<ImgBBFile[]> {
+  return request("/imgbb-files");
+}
+
 // ==================== 系统设置 API ====================
 
 export interface Settings {
@@ -410,6 +425,8 @@ export interface Settings {
   endpointProxyUrl: string;
   defaultExpirationDays: number;
   expirationCheckMinutes: number;
+  imgbbEnabled: boolean;
+  imgbbPriority: boolean;
 }
 
 export async function getSettings(): Promise<Settings> {
