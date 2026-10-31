@@ -3,8 +3,10 @@ package api
 import (
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
+	"fileflow/server/service"
 	"fileflow/server/store"
 
 	"github.com/gin-gonic/gin"
@@ -27,6 +29,26 @@ func Proxy(c *gin.Context) {
 
 	if subdomain == "" || path == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		return
+	}
+	accountID := ""
+	for _, account := range store.GetAccounts() {
+		domain := strings.TrimPrefix(strings.TrimPrefix(account.PublicDomain, "https://"), "http://")
+		if strings.Split(domain, ".")[0] == subdomain && account.IsActive {
+			accountID = account.ID
+			break
+		}
+	}
+	if accountID == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "代理存储账号不存在"})
+		return
+	}
+	if service.IsPendingUploadKey(accountID, strings.TrimPrefix(path, "/")) {
+		c.JSON(http.StatusConflict, gin.H{"error": "文件上传尚未确认"})
+		return
+	}
+	if err := service.ChargeAccountOperations(accountID, 0, 1); err != nil {
+		directUploadError(c, err)
 		return
 	}
 

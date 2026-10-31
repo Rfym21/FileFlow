@@ -11,14 +11,18 @@ import {
   updateWebDAVCredential,
   deleteWebDAVCredential,
   getAccounts,
+  getUsers,
+  rolePermissions,
   type WebDAVCredential,
   type WebDAVCredentialRequest,
-  type AccountFull,
+  type Account,
+  type UserProfile,
 } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 import { Plus, Trash2, RefreshCw, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
 import ConfirmationDialog from "@/components/ConfirmationDialog";
+import { useAuth } from "@/hooks/useAuth";
 
 const PAGE_SIZE = 5;
 
@@ -32,8 +36,10 @@ const PERMISSIONS = [
  * WebDAV 凭证管理组件
  */
 export default function WebDAVCredentialsManager() {
+  const { profile } = useAuth();
   const [credentials, setCredentials] = useState<WebDAVCredential[]>([]);
-  const [accounts, setAccounts] = useState<AccountFull[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<WebDAVCredentialRequest>({
@@ -42,6 +48,7 @@ export default function WebDAVCredentialsManager() {
     permissions: ["read", "write"],
     username: "",
     password: "",
+    userId: profile?.id,
   });
   const [submitting, setSubmitting] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -52,6 +59,9 @@ export default function WebDAVCredentialsManager() {
   const [deleteError, setDeleteError] = useState("");
   const deleteInFlight = useRef(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const availableUsers = users.filter((user) => user.isActive && (profile?.role === "owner" || user.id === profile?.id || user.role === "member" || user.role === "viewer"));
+  const selectedUser = availableUsers.find((user) => user.id === (form.userId || profile?.id));
+  const allowedPermissions = rolePermissions(selectedUser?.role || "viewer");
 
   // 分页计算
   const totalPages = Math.max(1, Math.ceil(credentials.length / PAGE_SIZE));
@@ -64,12 +74,14 @@ export default function WebDAVCredentialsManager() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [credData, accData] = await Promise.all([
+      const [credData, accData, memberData] = await Promise.all([
         getWebDAVCredentials(),
-        getAccounts(),
+        getAccounts<Account>(),
+        getUsers(),
       ]);
       setCredentials(credData || []);
       setAccounts(accData || []);
+      setUsers(memberData);
       setLoadError(false);
     } catch (err) {
       console.error("加载数据失败:", err);
@@ -90,10 +102,18 @@ export default function WebDAVCredentialsManager() {
       toast.error("请选择至少一个权限");
       return;
     }
+    if (!selectedUser) {
+      toast.error("请选择有效的所属成员");
+      return;
+    }
+    if (form.permissions.some((permission) => !allowedPermissions.some((allowed) => allowed === permission))) {
+      toast.error("凭证权限不能超过所属成员的权限");
+      return;
+    }
 
     setSubmitting(true);
     try {
-      await createWebDAVCredential(form);
+      await createWebDAVCredential({ ...form, userId: selectedUser.id });
       await loadData();
       setForm({
         accountId: "",
@@ -101,6 +121,7 @@ export default function WebDAVCredentialsManager() {
         permissions: ["read", "write"],
         username: "",
         password: "",
+        userId: profile?.id,
       });
       setShowForm(false);
       toast.success("WebDAV 凭证创建成功");
@@ -115,9 +136,11 @@ export default function WebDAVCredentialsManager() {
     if (togglingId) return;
     setTogglingId(cred.id);
     try {
+      const member = users.find((user) => user.id === cred.userId);
+      const allowed = member ? rolePermissions(member.role) : [];
       await updateWebDAVCredential(cred.id, {
         description: cred.description,
-        permissions: cred.permissions,
+        permissions: cred.permissions.filter((permission) => allowed.some((item) => item === permission)),
         isActive: !cred.isActive,
       });
       await loadData();
@@ -212,7 +235,7 @@ export default function WebDAVCredentialsManager() {
         <div className="text-sm text-muted-foreground">
           共 {credentials.length} 个凭证
         </div>
-        <Button disabled={loading || submitting || deletingId !== null || togglingId !== null} onClick={() => setShowForm(true)}>
+        <Button disabled={loading || loadError || submitting || deletingId !== null || togglingId !== null} onClick={() => setShowForm(true)}>
           <Plus className="mr-2 h-4 w-4" />
           创建凭证
         </Button>
@@ -221,9 +244,16 @@ export default function WebDAVCredentialsManager() {
       {/* 创建表单 */}
       <Dialog open={showForm} onOpenChange={(open) => { if (!submitting) setShowForm(open); }}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg" onEscapeKeyDown={(event) => { if (submitting) event.preventDefault(); }} onPointerDownOutside={(event) => { if (submitting) event.preventDefault(); }}>
-          <DialogHeader><DialogTitle>创建 WebDAV 凭证</DialogTitle><DialogDescription>选择关联账户并配置 WebDAV 客户端的访问凭证与权限。</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>创建 WebDAV 凭证</DialogTitle><DialogDescription>选择存储账户与所属成员，凭证权限受成员当前角色限制。</DialogDescription></DialogHeader>
           <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }}>
             <fieldset disabled={submitting} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="webdav-owner">所属成员 *</Label>
+              <select id="webdav-owner" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" required value={form.userId || profile?.id || ""} onChange={(event) => { const member = availableUsers.find((user) => user.id === event.target.value); const allowed = rolePermissions(member?.role || "viewer"); setForm({ ...form, userId: event.target.value, permissions: form.permissions.filter((permission) => allowed.some((item) => item === permission)) }); }}>
+                <option value="" disabled>请选择成员</option>{availableUsers.map((user) => <option key={user.id} value={user.id}>{user.displayName || user.username}（{user.username}）</option>)}
+              </select>
+              <p className="text-xs text-muted-foreground">停用成员后，其 WebDAV 凭证立即停止访问。</p>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="webdavcredentialsmanager-field-1">关联账户 *</Label>
               <select id="webdavcredentialsmanager-field-1" required
@@ -282,9 +312,11 @@ export default function WebDAVCredentialsManager() {
                   <button
                     key={perm.value}
                     type="button"
+                    disabled={!allowedPermissions.some((allowed) => allowed === perm.value)}
+                    title={!allowedPermissions.some((allowed) => allowed === perm.value) ? "所属成员没有此权限" : undefined}
                     aria-pressed={form.permissions.includes(perm.value)}
                     onClick={() => togglePermission(perm.value)}
-                    className={`px-3 py-1.5 rounded-md text-sm border transition-colors ${
+                    className={`px-3 py-1.5 rounded-md text-sm border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                       form.permissions.includes(perm.value)
                         ? "bg-primary text-primary-foreground border-primary"
                         : "bg-background border-input hover:bg-accent"
@@ -311,11 +343,12 @@ export default function WebDAVCredentialsManager() {
         <div className="overflow-x-auto border-y">
           <table className="w-full min-w-[900px] text-left text-sm">
             <caption className="sr-only">WebDAV 凭证列表</caption>
-            <thead className="border-b bg-muted/40 text-muted-foreground"><tr><th scope="col" className="px-3 py-3">关联账户</th><th scope="col" className="px-3 py-3">用户名 / 密码</th><th scope="col" className="px-3 py-3">权限</th><th scope="col" className="px-3 py-3">使用记录</th><th scope="col" className="px-3 py-3">启用</th><th scope="col" className="px-3 py-3 text-right">操作</th></tr></thead>
+            <thead className="border-b bg-muted/40 text-muted-foreground"><tr><th scope="col" className="px-3 py-3">关联账户</th><th scope="col" className="px-3 py-3">所属成员</th><th scope="col" className="px-3 py-3">用户名 / 密码</th><th scope="col" className="px-3 py-3">权限</th><th scope="col" className="px-3 py-3">使用记录</th><th scope="col" className="px-3 py-3">启用</th><th scope="col" className="px-3 py-3 text-right">操作</th></tr></thead>
             <tbody className="divide-y">
               {paginatedCredentials.map((cred) => (
                 <tr key={cred.id} className={cred.isActive ? "hover:bg-muted/30" : "bg-muted/30 text-muted-foreground"}>
                   <td className="max-w-56 px-3 py-4 align-top"><div className="font-medium">{getAccountName(cred.accountId)}</div><p className="mt-1 font-mono text-xs text-muted-foreground">{getBucketName(cred.accountId)}</p>{cred.description && <p className="mt-1 break-words text-xs text-muted-foreground">{cred.description}</p>}</td>
+                  <td className="max-w-40 break-all px-3 py-4 align-top">{users.find((user) => user.id === cred.userId)?.displayName || users.find((user) => user.id === cred.userId)?.username || cred.userId}{users.find((user) => user.id === cred.userId)?.isActive === false && <p className="mt-1 text-xs text-muted-foreground">成员已停用</p>}</td>
                   <td className="px-3 py-4 align-top">
                     <div className="flex items-center gap-2"><span className="w-10 text-xs text-muted-foreground">用户</span><code className="max-w-56 truncate select-all font-mono text-xs" title={cred.username}>{cred.username}</code><Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" aria-label={`复制 ${cred.username} 的用户名`} onClick={() => handleCopy(cred.username, cred.id + "-user")}>{copiedField === cred.id + "-user" ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}</Button></div>
                     <div className="mt-1 flex items-center gap-2"><span className="w-10 text-xs text-muted-foreground">密码</span><code className="max-w-56 truncate select-all font-mono text-xs" title={cred.password}>{cred.password}</code><Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" aria-label={`复制 ${cred.username} 的密码`} onClick={() => handleCopy(cred.password, cred.id + "-pass")}>{copiedField === cred.id + "-pass" ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}</Button></div>
@@ -326,7 +359,7 @@ export default function WebDAVCredentialsManager() {
                   <td className="px-3 py-4 text-right align-top"><Button variant="ghost" size="icon" className="text-destructive" aria-label={`删除凭证 ${cred.username}`} title="删除凭证" disabled={loading || deletingId !== null || togglingId !== null} onClick={() => handleDelete(cred)}>{deletingId === cred.id ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}</Button></td>
                 </tr>
               ))}
-              {credentials.length === 0 && <tr><td colSpan={6} className="space-y-1 py-12 text-center text-muted-foreground"><p>暂无 WebDAV 凭证</p><p className="text-xs">创建凭证以使用 WebDAV 客户端访问</p></td></tr>}
+              {credentials.length === 0 && <tr><td colSpan={7} className="space-y-1 py-12 text-center text-muted-foreground"><p>暂无 WebDAV 凭证</p><p className="text-xs">创建凭证以使用 WebDAV 客户端访问</p></td></tr>}
             </tbody>
           </table>
         </div>

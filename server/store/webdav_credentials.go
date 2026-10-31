@@ -61,6 +61,11 @@ func GetWebDAVCredentialByUsername(username string) (*WebDAVCredential, error) {
 func CreateWebDAVCredential(cred *WebDAVCredential) error {
 	dataLock.Lock()
 	defer dataLock.Unlock()
+	user, err := credentialUser(cred.UserID, cred.Permissions)
+	if err != nil {
+		return err
+	}
+	cred.UserID = user.ID
 
 	// 验证账户存在
 	found := false
@@ -97,9 +102,13 @@ func CreateWebDAVCredential(cred *WebDAVCredential) error {
 	cred.CreatedAt = NowString()
 	cred.LastUsedAt = ""
 
-	data.WebDAVCredentials = append(data.WebDAVCredentials, *cred)
-
-	return save()
+	previous := data.WebDAVCredentials
+	data.WebDAVCredentials = append(append([]WebDAVCredential(nil), data.WebDAVCredentials...), *cred)
+	if err := save(); err != nil {
+		data.WebDAVCredentials = previous
+		return err
+	}
+	return nil
 }
 
 /**
@@ -111,6 +120,25 @@ func UpdateWebDAVCredential(id string, updates *WebDAVCredential) error {
 
 	for i, c := range data.WebDAVCredentials {
 		if c.ID == id {
+			previous := c
+			permissions := c.Permissions
+			if updates.Permissions != nil {
+				permissions = updates.Permissions
+			}
+			userID := c.UserID
+			if updates.UserID != "" {
+				userID = updates.UserID
+			}
+			if updates.IsActive {
+				user, err := credentialUser(userID, permissions)
+				if err != nil {
+					return err
+				}
+				userID = user.ID
+			} else if userIndexByID(userID) < 0 {
+				return ErrUserNotFound
+			}
+			data.WebDAVCredentials[i].UserID = userID
 			// 只更新允许更新的字段
 			if updates.Description != "" {
 				data.WebDAVCredentials[i].Description = updates.Description
@@ -119,7 +147,11 @@ func UpdateWebDAVCredential(id string, updates *WebDAVCredential) error {
 				data.WebDAVCredentials[i].Permissions = updates.Permissions
 			}
 			data.WebDAVCredentials[i].IsActive = updates.IsActive
-			return save()
+			if err := save(); err != nil {
+				data.WebDAVCredentials[i] = previous
+				return err
+			}
+			return nil
 		}
 	}
 	return fmt.Errorf("WebDAV 凭证不存在")
@@ -134,8 +166,13 @@ func UpdateWebDAVCredentialLastUsed(id string) error {
 
 	for i, c := range data.WebDAVCredentials {
 		if c.ID == id {
+			previous := c
 			data.WebDAVCredentials[i].LastUsedAt = NowString()
-			return save()
+			if err := save(); err != nil {
+				data.WebDAVCredentials[i] = previous
+				return err
+			}
+			return nil
 		}
 	}
 	return nil
@@ -150,8 +187,13 @@ func DeleteWebDAVCredential(id string) error {
 
 	for i, c := range data.WebDAVCredentials {
 		if c.ID == id {
-			data.WebDAVCredentials = append(data.WebDAVCredentials[:i], data.WebDAVCredentials[i+1:]...)
-			return save()
+			previous := data.WebDAVCredentials
+			data.WebDAVCredentials = append(append([]WebDAVCredential(nil), previous[:i]...), previous[i+1:]...)
+			if err := save(); err != nil {
+				data.WebDAVCredentials = previous
+				return err
+			}
+			return nil
 		}
 	}
 	return fmt.Errorf("WebDAV 凭证不存在")

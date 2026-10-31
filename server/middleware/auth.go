@@ -1,164 +1,148 @@
 package middleware
 
 import (
-	"net/http"
-	"strings"
-
 	"fileflow/server/config"
 	"fileflow/server/store"
-
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"net/http"
+	"strings"
+	"time"
 )
 
-// 上下文键
 const (
 	ContextKeyUser      = "user"
+	ContextKeyUserID    = "user_id"
+	ContextKeyProfile   = "user_profile"
 	ContextKeyTokenID   = "token_id"
 	ContextKeyAuthType  = "auth_type"
 	ContextKeyTokenPerm = "token_permissions"
+	AuthTypeJWT         = "jwt"
+	AuthTypeToken       = "api_token"
 )
 
-// 认证类型
-const (
-	AuthTypeJWT   = "jwt"
-	AuthTypeToken = "api_token"
-)
-
-// Claims JWT Claims
 type Claims struct {
-	Username string `json:"username"`
+	Username    string `json:"username"`
+	AuthVersion int    `json:"authVersion"`
 	jwt.RegisteredClaims
 }
 
-// AuthMiddleware 认证中间件（支持 JWT 和 API Token）
-func AuthMiddleware() gin.HandlerFunc {
+func AuthMiddleware() gin.HandlerFunc { return authenticate(false) }
+
+// JWTOnlyMiddleware requires an interactive member session, not an administrator role.
+func JWTOnlyMiddleware() gin.HandlerFunc { return authenticate(true) }
+func authenticate(jwtOnly bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权访问"})
-			c.Abort()
-			return
-		}
-
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-
-		// 优先尝试 JWT 验证
-		if validateJWT(c, tokenString) {
-			c.Next()
-			return
-		}
-
-		// 尝试 API Token 验证
-		if validateAPIToken(c, tokenString) {
-			c.Next()
-			return
-		}
-
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "无效的认证凭证"})
-		c.Abort()
-	}
-}
-
-// JWTOnlyMiddleware 仅允许 JWT 认证（管理员专用）
-func JWTOnlyMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "需要管理员登录"})
-			c.Abort()
-			return
-		}
-
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		if !validateJWT(c, tokenString) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "无效的登录凭证"})
-			c.Abort()
-			return
-		}
-
-		c.Next()
-	}
-}
-
-// RequirePermission 检查 API Token 权限
-func RequirePermission(perm string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		authType := c.GetString(ContextKeyAuthType)
-
-		// JWT 用户拥有全部权限
-		if authType == AuthTypeJWT {
-			c.Next()
-			return
-		}
-
-		// 检查 API Token 权限
-		permissions, exists := c.Get(ContextKeyTokenPerm)
-		if !exists {
-			c.JSON(http.StatusForbidden, gin.H{"error": "权限不足"})
-			c.Abort()
-			return
-		}
-
-		perms := permissions.([]string)
-		for _, p := range perms {
-			if p == perm {
+		header := c.GetHeader("Authorization")
+		if strings.HasPrefix(header, "Bearer ") {
+			value := strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
+			if validateJWT(c, value) || (!jwtOnly && validateAPIToken(c, value)) {
 				c.Next()
 				return
 			}
 		}
-
-		c.JSON(http.StatusForbidden, gin.H{"error": "权限不足: 需要 " + perm})
-		c.Abort()
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "登录已失效，请重新登录"})
 	}
 }
-
-// validateJWT 验证 JWT Token
-func validateJWT(c *gin.Context, tokenString string) bool {
-	cfg := config.Get()
-
-	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		return []byte(cfg.JWTSecret), nil
-	})
-
-	if err != nil || !token.Valid {
+func CurrentUser(c *gin.Context) *store.User {
+	profile, exists := c.Get(ContextKeyProfile)
+	if !exists {
+		return nil
+	}
+	user, _ := profile.(*store.User)
+	return user
+}
+func Permissions(c *gin.Context) []string {
+	value, _ := c.Get(ContextKeyTokenPerm)
+	permissions, _ := value.([]string)
+	return permissions
+}
+func HasPermission(c *gin.Context, permission string) bool {
+	for _, granted := range Permissions(c) {
+		if granted == permission {
+			return true
+		}
+	}
+	return false
+}
+func RequirePermission(permission string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !HasPermission(c, permission) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "权限不足: 需要 " + permission})
+			return
+		}
+		c.Next()
+	}
+}
+func setUserContext(c *gin.Context, user *store.User, authType string, permissions []string) {
+	c.Set(ContextKeyUser, user.Username)
+	c.Set(ContextKeyUserID, user.ID)
+	c.Set(ContextKeyProfile, user)
+	c.Set(ContextKeyAuthType, authType)
+	c.Set(ContextKeyTokenPerm, permissions)
+}
+func validateJWT(c *gin.Context, value string) bool {
+	claims := &Claims{}
+	token, err := jwt.ParseWithClaims(value, claims, func(token *jwt.Token) (interface{}, error) {
+		return []byte(config.Get().JWTSecret), nil
+	}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithIssuer("fileflow"), jwt.WithExpirationRequired(), jwt.WithIssuedAt())
+	if err != nil || !token.Valid || claims.Subject == "" || claims.IssuedAt == nil {
 		return false
 	}
-
-	claims, ok := token.Claims.(*Claims)
-	if !ok {
+	user, err := store.GetUserByID(claims.Subject)
+	if err != nil || !user.IsActive || user.AuthVersion != claims.AuthVersion {
 		return false
 	}
-
-	c.Set(ContextKeyUser, claims.Username)
-	c.Set(ContextKeyAuthType, AuthTypeJWT)
+	setUserContext(c, user, AuthTypeJWT, store.PermissionsForRole(user.Role))
 	return true
 }
 
-// validateAPIToken 验证 API Token
-func validateAPIToken(c *gin.Context, tokenValue string) bool {
-	token, err := store.ValidateAPIToken(tokenValue)
-	if err != nil {
+// EffectivePermissions intersects each credential with its member's current role.
+func EffectivePermissions(role string, requested []string) []string {
+	allowed := store.PermissionsForRole(role)
+	result := make([]string, 0, len(requested))
+	for _, permission := range requested {
+		if permission == "manage" {
+			continue
+		}
+		for _, grant := range allowed {
+			if permission == grant {
+				result = append(result, permission)
+				break
+			}
+		}
+	}
+	return result
+}
+func validateAPIToken(c *gin.Context, value string) bool {
+	token, err := store.ValidateAPIToken(value)
+	if err != nil || token.UserID == "" {
 		return false
 	}
-
+	user, err := store.GetUserByID(token.UserID)
+	if err != nil || !user.IsActive {
+		return false
+	}
+	setUserContext(c, user, AuthTypeToken, EffectivePermissions(user.Role, token.Permissions))
 	c.Set(ContextKeyTokenID, token.ID)
-	c.Set(ContextKeyAuthType, AuthTypeToken)
-	c.Set(ContextKeyTokenPerm, token.Permissions)
 	return true
 }
-
-// GenerateJWT 生成 JWT Token
 func GenerateJWT(username string) (string, error) {
-	cfg := config.Get()
-
+	user, err := store.GetUserByUsername(username)
+	if err != nil {
+		return "", err
+	}
+	return GenerateJWTForUser(user)
+}
+func GenerateJWTForUser(user *store.User) (string, error) {
+	now := time.Now()
 	claims := &Claims{
-		Username: username,
+		Username: user.Username, AuthVersion: user.AuthVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer: "fileflow",
+			Issuer: "fileflow", Subject: user.ID,
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)),
 		},
 	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(cfg.JWTSecret))
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(config.Get().JWTSecret))
 }

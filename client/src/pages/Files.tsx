@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Pagination } from "@/components/ui/pagination";
 import {
   getAccountsPaged,
-  type AccountFull,
+  type Account,
 } from "@/lib/api";
 import { formatBytes } from "@/lib/utils";
 import {
@@ -18,22 +18,24 @@ import {
   ChevronUp,
 } from "lucide-react";
 import FileUploader from "@/components/FileUploader";
+import { useAuth } from "@/hooks/useAuth";
 
 const PAGE_SIZE = 9;
 
 export default function Files() {
+  const { can } = useAuth();
   const navigate = useNavigate();
-  const [accounts, setAccounts] = useState<AccountFull[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [showUploader, setShowUploader] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
 
-  const loadAccounts = useCallback(async (page: number = currentPage) => {
+  const loadAccounts = useCallback(async (page: number) => {
     setLoading(true);
     try {
-      const data = await getAccountsPaged(page, PAGE_SIZE);
+      const data = await getAccountsPaged<Account>(page, PAGE_SIZE);
       setAccounts(data.items || []);
       setTotalPages(data.totalPages);
       setTotalItems(data.total);
@@ -44,7 +46,7 @@ export default function Files() {
     } finally {
       setLoading(false);
     }
-  }, [currentPage]);
+  }, []);
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
@@ -53,7 +55,7 @@ export default function Files() {
 
   useEffect(() => {
     loadAccounts(1);
-  }, []);
+  }, [loadAccounts]);
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -75,7 +77,7 @@ export default function Files() {
             />
             <span className="hidden sm:inline">刷新</span>
           </Button>
-          <Button
+          {can("write") && <Button
             size="sm"
             onClick={() => setShowUploader(!showUploader)}
             className="flex-1 sm:flex-none"
@@ -88,12 +90,12 @@ export default function Files() {
             ) : (
               <ChevronDown className="ml-1 h-4 w-4" />
             )}
-          </Button>
+          </Button>}
         </div>
       </div>
 
       {/* 上传区域 */}
-      {showUploader && (
+      {can("write") && showUploader && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base sm:text-lg">上传文件</CardTitle>

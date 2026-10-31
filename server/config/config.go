@@ -40,9 +40,6 @@ func Load() *Config {
 	}
 
 	// 验证必要配置
-	if cfg.AdminPassword == "" {
-		log.Fatal("FILEFLOW_ADMIN_PASSWORD 未设置")
-	}
 	if cfg.JWTSecret == "" {
 		log.Fatal("FILEFLOW_JWT_SECRET 未设置")
 	}

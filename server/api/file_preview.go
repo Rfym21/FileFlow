@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"fileflow/server/service"
+	"fileflow/server/store"
 
 	"github.com/aws/smithy-go"
 	"github.com/gin-gonic/gin"
@@ -19,6 +20,8 @@ func GetFilePreview(c *gin.Context) {
 		var apiError smithy.APIError
 		if errors.Is(err, service.ErrInvalidFilePreview) {
 			status = http.StatusBadRequest
+		} else if errors.Is(err, store.ErrUploadQuotaExceeded) {
+			status = http.StatusTooManyRequests
 		} else if errors.Is(err, service.ErrPreviewAccountNotFound) || (errors.As(err, &apiError) && (apiError.ErrorCode() == "NoSuchKey" || apiError.ErrorCode() == "NotFound")) {
 			status = http.StatusNotFound
 		}

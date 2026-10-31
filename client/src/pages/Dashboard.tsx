@@ -14,10 +14,11 @@ import {
   getAccountsPaged,
   getAccountsStats,
   syncAccounts,
-  type AccountFull,
+  type Account,
   type AccountsStats,
 } from "@/lib/api";
 import { formatBytes, formatNumber } from "@/lib/utils";
+import { useAuth } from "@/hooks/useAuth";
 import {
   HardDrive,
   Upload,
@@ -31,7 +32,8 @@ import {
 const PAGE_SIZE = 6;
 
 export default function Dashboard() {
-  const [accounts, setAccounts] = useState<AccountFull[]>([]);
+  const { can } = useAuth();
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [stats, setStats] = useState<AccountsStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -51,7 +53,7 @@ export default function Dashboard() {
 
   const loadAccounts = useCallback(async (page: number) => {
     try {
-      const data = await getAccountsPaged(page, PAGE_SIZE);
+      const data = await getAccountsPaged<Account>(page, PAGE_SIZE);
       setAccounts(data.items || []);
       setTotalPages(data.totalPages);
       setTotalItems(data.total);
@@ -61,14 +63,14 @@ export default function Dashboard() {
     }
   }, []);
 
-  const loadData = useCallback(async (page: number = currentPage) => {
+  const loadData = useCallback(async (page: number) => {
     setLoading(true);
     try {
       await Promise.all([loadStats(), loadAccounts(page)]);
     } finally {
       setLoading(false);
     }
-  }, [loadStats, loadAccounts, currentPage]);
+  }, [loadStats, loadAccounts]);
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
@@ -76,6 +78,7 @@ export default function Dashboard() {
   };
 
   const handleSync = async () => {
+    if (!can("manage")) return;
     setSyncing(true);
     try {
       await syncAccounts();
@@ -90,6 +93,7 @@ export default function Dashboard() {
   };
 
   const handleSyncAccount = async (accountId: string) => {
+    if (!can("manage")) return;
     setSyncingAccountId(accountId);
     try {
       await syncAccounts(accountId);
@@ -105,7 +109,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadData(1);
-  }, []);
+  }, [loadData]);
 
   if (loading) {
     return (
@@ -122,12 +126,12 @@ export default function Dashboard() {
           <h1 className="text-3xl font-bold">仪表盘</h1>
           <p className="text-muted-foreground">R2 存储账户概览</p>
         </div>
-        <Button onClick={handleSync} disabled={syncing}>
+        {can("manage") && <Button onClick={handleSync} disabled={syncing}>
           <RefreshCw
             className={`mr-2 h-4 w-4 ${syncing ? "animate-spin" : ""}`}
           />
           {syncing ? "同步中..." : "立即同步"}
-        </Button>
+        </Button>}
       </div>
 
       {/* 统计卡片 */}
@@ -193,7 +197,7 @@ export default function Dashboard() {
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-12">
               <HardDrive className="h-12 w-12 text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">暂无账户，请前往设置添加</p>
+              <p className="text-muted-foreground">{can("manage") ? "暂无账户，请前往设置添加" : "暂无存储账户，请联系管理员"}</p>
             </CardContent>
           </Card>
         ) : (
@@ -205,7 +209,7 @@ export default function Dashboard() {
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-lg">{account.name}</CardTitle>
                       <div className="flex items-center gap-2">
-                        <Button
+                        {can("manage") && <Button
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7"
@@ -217,7 +221,7 @@ export default function Dashboard() {
                               syncingAccountId === account.id ? "animate-spin" : ""
                             }`}
                           />
-                        </Button>
+                        </Button>}
                         <StatusBadge account={account} />
                       </div>
                     </div>
@@ -242,7 +246,7 @@ export default function Dashboard() {
                     {/* 写入操作 */}
                     <div>
                       <div className="flex justify-between text-sm mb-1">
-                        <span>写入操作</span>
+                        <span>Class A 请求</span>
                         <span>
                           {formatNumber(account.usage.classAOps)} /{" "}
                           {formatNumber(account.quota.maxClassAOps)}
@@ -257,8 +261,8 @@ export default function Dashboard() {
                     {/* 读取操作 */}
                     <div>
                       <div className="flex justify-between text-sm mb-1">
-                        <span>读取操作</span>
-                        <span>{formatNumber(account.usage.classBOps || 0)}</span>
+                        <span>Class B 请求</span>
+                        <span>{formatNumber(account.usage.classBOps || 0)} / {account.quota.maxClassBOps ? formatNumber(account.quota.maxClassBOps) : "未限制"}</span>
                       </div>
                     </div>
 
@@ -297,7 +301,7 @@ export default function Dashboard() {
 /**
  * 账户状态徽章
  */
-function StatusBadge({ account }: { account: AccountFull }) {
+function StatusBadge({ account }: { account: Account }) {
   if (!account.isActive) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-destructive px-2 py-1 text-xs text-destructive-foreground">

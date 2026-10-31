@@ -63,6 +63,7 @@ const defaultAccountForm: AccountRequest = {
   quota: {
     maxSizeBytes: 10 * 1024 * 1024 * 1024,
     maxClassAOps: 1000000,
+    maxClassBOps: 0,
   },
   permissions: {
     webdav: true,
@@ -138,8 +139,8 @@ export default function AccountsManager() {
       toast.error("请填写所有必填字段");
       return;
     }
-    if (!Number.isFinite(form.quota.maxSizeBytes) || !Number.isFinite(form.quota.maxClassAOps) || form.quota.maxSizeBytes < 0 || form.quota.maxClassAOps < 0) {
-      toast.error("容量和写入操作配额必须是非负数");
+    if (!Number.isSafeInteger(form.quota.maxSizeBytes) || !Number.isSafeInteger(form.quota.maxClassAOps) || !Number.isSafeInteger(form.quota.maxClassBOps || 0) || form.quota.maxSizeBytes < 0 || form.quota.maxClassAOps < 0 || (form.quota.maxClassBOps || 0) < 0) {
+      toast.error("容量和请求配额必须是有效的非负整数");
       return;
     }
 
@@ -465,7 +466,7 @@ export default function AccountsManager() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="account-field-9">最大容量 (GB)</Label>
+                <Label htmlFor="account-field-9">最大容量 (GiB)</Label>
                 <Input id="account-field-9"
                   type="number"
                   value={form.quota.maxSizeBytes / 1024 / 1024 / 1024}
@@ -474,16 +475,18 @@ export default function AccountsManager() {
                       ...form,
                       quota: {
                         ...form.quota,
-                        maxSizeBytes: (Number(e.target.value) || 0) * 1024 * 1024 * 1024,
+                        maxSizeBytes: Math.round((Number(e.target.value) || 0) * 1024 * 1024 * 1024),
                       },
                     })
                   }
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="account-field-10">最大写入操作数</Label>
+                <Label htmlFor="account-field-10">Class A 请求上限</Label>
                 <Input id="account-field-10"
                   type="number"
+                  min={0}
+                  step={1}
                   value={form.quota.maxClassAOps}
                   onChange={(e) =>
                     setForm({
@@ -495,6 +498,12 @@ export default function AccountsManager() {
                     })
                   }
                 />
+                <p className="text-xs text-muted-foreground">包括上传、列目录等操作</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="account-class-b-quota">Class B 请求上限</Label>
+                <Input id="account-class-b-quota" type="number" min={0} step={1} value={form.quota.maxClassBOps || 0} onChange={(event) => setForm({ ...form, quota: { ...form.quota, maxClassBOps: Number(event.target.value) || 0 } })} />
+                <p className="text-xs text-muted-foreground">包括文件读取和检查；0 表示未设置此限制</p>
               </div>
             </div>
             <div className="space-y-2">
@@ -593,7 +602,7 @@ export default function AccountsManager() {
                     <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground"><span className="max-w-44 truncate font-mono" title={account.id}>{account.id}</span><Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" aria-label={`复制 ${account.name} 的账户 ID`} onClick={() => handleCopyId(account.id)}>{copiedId === account.id ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}</Button></div>
                   </td>
                   <td className="max-w-64 px-3 py-4 align-top"><div className="font-mono">{account.bucketName}</div><div className="mt-1 max-w-60 truncate text-xs text-muted-foreground" title={account.endpoint}>{account.endpoint}</div><div className="mt-1 max-w-60 truncate text-xs text-muted-foreground" title={account.publicDomain}>{account.publicDomain}</div></td>
-                  <td className="whitespace-nowrap px-3 py-4 align-top"><div>{formatBytes(account.usage.sizeBytes)} / {formatBytes(account.quota.maxSizeBytes)}</div><div className="mt-1 text-xs text-muted-foreground">写入 {formatNumber(account.usage.classAOps)} / {formatNumber(account.quota.maxClassAOps)}</div><div className="mt-1 text-xs text-muted-foreground">读取 {formatNumber(account.usage.classBOps)}</div></td>
+                  <td className="whitespace-nowrap px-3 py-4 align-top"><div>{formatBytes(account.usage.sizeBytes)} / {formatBytes(account.quota.maxSizeBytes)}</div><div className="mt-1 text-xs text-muted-foreground">Class A {formatNumber(account.usage.classAOps)} / {formatNumber(account.quota.maxClassAOps)}</div><div className="mt-1 text-xs text-muted-foreground">Class B {formatNumber(account.usage.classBOps)} / {account.quota.maxClassBOps ? formatNumber(account.quota.maxClassBOps) : "未限制"}</div></td>
                   <td className="px-3 py-4 align-top"><div className="flex max-w-48 flex-wrap gap-1">{account.permissions?.webdav && <Badge variant="secondary">WebDAV</Badge>}{account.permissions?.autoUpload && <Badge variant="secondary">自动上传</Badge>}{account.permissions?.apiUpload && <Badge variant="secondary">API 上传</Badge>}{account.permissions?.clientUpload && <Badge variant="secondary">前端上传</Badge>}{account.permissions && !Object.values(account.permissions).some(Boolean) && <span className="text-xs text-muted-foreground">无权限</span>}</div></td>
                   <td className="px-3 py-4 align-top"><Switch aria-label={`启用账户 ${account.name}`} checked={account.isActive} onCheckedChange={() => handleToggleActive(account)} disabled={busy} /></td>
                   <td className="px-3 py-4 align-top">

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"fileflow/server/middleware"
 	"fileflow/server/service"
 	"fileflow/server/store"
 
@@ -124,16 +125,24 @@ func toAccountFullResponse(acc *store.Account) AccountFullResponse {
 }
 
 // GetAccounts 获取账户列表（支持分页）
+func accountView(c *gin.Context, account *store.Account) any {
+	if middleware.HasPermission(c, "manage") {
+		return toAccountFullResponse(account)
+	}
+	return toAccountResponse(account)
+}
+
 func GetAccounts(c *gin.Context) {
+	c.Header("Cache-Control", "private, no-store")
 	pageStr := c.Query("page")
 	pageSizeStr := c.Query("pageSize")
 
 	// 如果没有分页参数，返回所有账户（兼容旧接口）
 	if pageStr == "" && pageSizeStr == "" {
 		accounts := store.GetAccounts()
-		var result []AccountFullResponse
+		result := make([]any, 0, len(accounts))
 		for _, acc := range accounts {
-			result = append(result, toAccountFullResponse(&acc))
+			result = append(result, accountView(c, &acc))
 		}
 		c.JSON(http.StatusOK, result)
 		return
@@ -152,9 +161,9 @@ func GetAccounts(c *gin.Context) {
 
 	pagedResult := store.GetAccountsPaged(page, pageSize)
 
-	var items []AccountFullResponse
+	items := make([]any, 0, len(pagedResult.Items))
 	for _, acc := range pagedResult.Items {
-		items = append(items, toAccountFullResponse(&acc))
+		items = append(items, accountView(c, &acc))
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -168,6 +177,7 @@ func GetAccounts(c *gin.Context) {
 
 // GetAccount 获取单个账户
 func GetAccount(c *gin.Context) {
+	c.Header("Cache-Control", "private, no-store")
 	id := c.Param("id")
 
 	acc, err := store.GetAccountByID(id)
@@ -176,7 +186,7 @@ func GetAccount(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, toAccountFullResponse(acc))
+	c.JSON(http.StatusOK, accountView(c, acc))
 }
 
 // CreateAccount 创建账户
@@ -221,6 +231,7 @@ func CreateAccount(c *gin.Context) {
 	}
 
 	// 创建后返回完整信息（包含敏感字段）
+	c.Set("audit_target", acc.ID)
 	c.JSON(http.StatusCreated, toAccountFullResponse(acc))
 }
 

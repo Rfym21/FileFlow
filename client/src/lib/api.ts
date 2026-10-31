@@ -1,9 +1,24 @@
 const API_BASE = "/api";
 
+export const AUTH_CHANGED_EVENT = "fileflow-auth-changed";
+export const PERMISSIONS_CHANGED_EVENT = "fileflow-permissions-changed";
+
+export class APIError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "APIError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
 /**
  * 获取存储的 JWT Token
  */
-function getToken(): string | null {
+export function getToken(): string | null {
   return localStorage.getItem("token");
 }
 
@@ -12,6 +27,7 @@ function getToken(): string | null {
  */
 export function setToken(token: string): void {
   localStorage.setItem("token", token);
+  window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
 }
 
 /**
@@ -19,6 +35,7 @@ export function setToken(token: string): void {
  */
 export function clearToken(): void {
   localStorage.removeItem("token");
+  window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
 }
 
 /**
@@ -55,7 +72,13 @@ async function request<T>(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: "请求失败" }));
-    throw new Error(error.error || "请求失败");
+    if (token && getToken() === token) {
+      if (response.status === 401) clearToken();
+      if (response.status === 403) {
+        window.dispatchEvent(new Event(PERMISSIONS_CHANGED_EVENT));
+      }
+    }
+    throw new APIError(error.error || "请求失败", response.status, error.code);
   }
 
   return response.json();
@@ -70,6 +93,42 @@ export interface LoginRequest {
 
 export interface LoginResponse {
   token: string;
+  profile: UserProfile;
+  permissions: Permission[];
+}
+
+export type TeamRole = "owner" | "admin" | "member" | "viewer";
+export type Permission = "read" | "write" | "delete" | "manage";
+
+export interface UserProfile {
+  id: string;
+  username: string;
+  displayName: string;
+  role: TeamRole;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const TEAM_ROLES: Record<TeamRole, { label: string; description: string }> = {
+  owner: { label: "所有者", description: "管理团队、管理员和全部文件" },
+  admin: { label: "管理员", description: "管理成员、存储配置和全部文件" },
+  member: { label: "可读写成员", description: "浏览、上传、删除文件和修改到期时间" },
+  viewer: { label: "只读成员", description: "浏览、预览和下载文件" },
+};
+
+export function rolePermissions(role: TeamRole): Permission[] {
+  if (role === "owner" || role === "admin") return ["read", "write", "delete", "manage"];
+  if (role === "member") return ["read", "write", "delete"];
+  return ["read"];
+}
+
+export interface AuthResponse {
+  valid: boolean;
+  authType?: string;
+  user?: string;
+  profile?: UserProfile;
+  permissions?: Permission[];
 }
 
 export async function login(data: LoginRequest): Promise<LoginResponse> {
@@ -81,8 +140,63 @@ export async function login(data: LoginRequest): Promise<LoginResponse> {
   return result;
 }
 
-export async function checkAuth(): Promise<{ valid: boolean; user?: string }> {
+export async function checkAuth(): Promise<AuthResponse> {
   return request("/check");
+}
+
+export async function logout(): Promise<void> {
+  await request("/auth/logout", { method: "POST" });
+}
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await request("/auth/password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
+export interface UserRequest {
+  username: string;
+  displayName: string;
+  password: string;
+  role: Exclude<TeamRole, "owner">;
+}
+
+export interface UserUpdateRequest {
+  displayName: string;
+  role: TeamRole;
+  isActive: boolean;
+  password?: string;
+}
+
+export async function getUsers(): Promise<UserProfile[]> {
+  const result = await request<{ users: UserProfile[] }>("/users");
+  return result.users || [];
+}
+
+export async function createUser(data: UserRequest): Promise<UserProfile> {
+  return request("/users", { method: "POST", body: JSON.stringify(data) });
+}
+
+export async function updateUser(id: string, data: UserUpdateRequest): Promise<UserProfile> {
+  return request(`/users/${encodeURIComponent(id)}`, {
+    method: "PUT", body: JSON.stringify(data),
+  });
+}
+
+export interface AuditEntry {
+  id: string;
+  userId: string;
+  username: string;
+  action: string;
+  target: string;
+  status: number;
+  createdAt: string;
+}
+
+export async function getAuditLogs(): Promise<AuditEntry[]> {
+  const result = await request<{ entries: AuditEntry[] }>("/audit-logs?limit=100");
+  return result.entries || [];
 }
 
 // ==================== 账户 API ====================
@@ -90,6 +204,7 @@ export async function checkAuth(): Promise<{ valid: boolean; user?: string }> {
 export interface Quota {
   maxSizeBytes: number;
   maxClassAOps: number;
+  maxClassBOps?: number;
 }
 
 export interface Usage {
@@ -194,17 +309,17 @@ export interface AccountsStats {
 /**
  * 获取所有账户（不分页，兼容旧接口）
  */
-export async function getAccounts(): Promise<AccountFull[]> {
+export async function getAccounts<T = AccountFull>(): Promise<T[]> {
   return request("/accounts");
 }
 
 /**
  * 分页获取账户列表
  */
-export async function getAccountsPaged(
+export async function getAccountsPaged<T = AccountFull>(
   page: number,
   pageSize: number
-): Promise<PagedResponse<AccountFull>> {
+): Promise<PagedResponse<T>> {
   return request(`/accounts?page=${page}&pageSize=${pageSize}`);
 }
 
@@ -290,11 +405,13 @@ export interface Token {
   token?: string;
   permissions: string[];
   createdAt: string;
+  userId: string;
 }
 
 export interface TokenRequest {
   name: string;
   permissions: string[];
+  userId?: string;
 }
 
 export async function getTokens(): Promise<Token[]> {
@@ -344,17 +461,99 @@ export async function getFiles(
   prefix?: string,
   cursor?: string,
   limit?: number,
-  idGroup?: string[]
+  idGroup?: string[],
+  options?: { flat?: boolean; query?: string; signal?: AbortSignal }
 ): Promise<AccountFiles[]> {
   const params = new URLSearchParams();
   if (prefix) params.set("prefix", prefix);
   if (cursor) params.set("cursor", cursor);
   if (limit) params.set("limit", limit.toString());
+  if (options?.flat) params.set("flat", "true");
+  if (options?.query) params.set("q", options.query);
   if (idGroup && idGroup.length > 0) {
     params.set("idGroup", idGroup.join(","));
   }
   const query = params.toString() ? `?${params.toString()}` : "";
-  return request(`/files${query}`);
+  return request(`/files${query}`, { signal: options?.signal });
+}
+
+export interface UploadInitRequest {
+  filename: string;
+  size: number;
+  contentType?: string;
+  path?: string;
+  idGroup?: string;
+  expirationDays?: number;
+  randomFilename?: boolean;
+  requestId?: string;
+}
+
+export interface UploadInitResponse {
+  uploadId: string;
+  url: string;
+  method: "PUT";
+  headers: Record<string, string>;
+  expiresAt: string;
+  accountId: string;
+  key: string;
+  size: number;
+}
+
+export async function initDirectUpload(data: UploadInitRequest, signal?: AbortSignal): Promise<UploadInitResponse> {
+  return request("/upload/init", { method: "POST", body: JSON.stringify(data), signal });
+}
+
+export async function completeDirectUpload(uploadId: string, signal?: AbortSignal): Promise<UploadResult> {
+  return request("/upload/complete", { method: "POST", body: JSON.stringify({ uploadId }), signal });
+}
+
+type UploadTransferOptions = { signal?: AbortSignal; onProgress?: (progress: number) => void };
+
+function sendUpload<T>(url: string, method: string, body: XMLHttpRequestBodyInit, headers: Record<string, string>, options: UploadTransferOptions, localAPI: boolean): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const token = localAPI ? getToken() : null;
+    const cleanup = () => options.signal?.removeEventListener("abort", abort);
+    const abort = () => xhr.abort();
+    if (options.signal?.aborted) { reject(new DOMException("上传已取消", "AbortError")); return; }
+    xhr.open(method, url);
+    xhr.timeout = 60 * 60 * 1000;
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    for (const [name, value] of Object.entries(headers)) {
+      // The browser supplies these forbidden headers from the actual File.
+      if (!["host", "content-length", "authorization"].includes(name.toLowerCase())) xhr.setRequestHeader(name, value);
+    }
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && event.total > 0) options.onProgress?.(Math.min(99, Math.round(event.loaded * 100 / event.total)));
+    };
+    xhr.onload = () => {
+      cleanup();
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { resolve(localAPI ? JSON.parse(xhr.responseText) as T : undefined as T); }
+        catch { reject(new Error("上传响应格式错误，请刷新文件列表确认结果")); }
+        return;
+      }
+      let message = localAPI ? "服务器上传失败" : `R2 上传失败（${xhr.status}），请检查上传链接或存储桶设置`;
+      if (localAPI) {
+        try { message = JSON.parse(xhr.responseText).error || message; } catch { /* keep a concise HTTP error */ }
+        if (token && getToken() === token) {
+          if (xhr.status === 401) clearToken();
+          if (xhr.status === 403) window.dispatchEvent(new Event(PERMISSIONS_CHANGED_EVENT));
+        }
+      }
+      reject(new APIError(message, xhr.status));
+    };
+    xhr.onerror = () => { cleanup(); reject(new Error(localAPI ? "网络连接失败，请检查服务器连接" : "直传连接失败，请检查网络和 R2 存储桶的 CORS 配置，或选择服务器中转上传")); };
+    xhr.ontimeout = () => { cleanup(); reject(new Error("上传超时，请检查连接后重试")); };
+    xhr.onabort = () => { cleanup(); reject(new DOMException("上传已取消", "AbortError")); };
+    options.signal?.addEventListener("abort", abort, { once: true });
+    xhr.send(body);
+  });
+}
+
+export async function putDirectUpload(session: UploadInitResponse, file: File, options: UploadTransferOptions = {}): Promise<void> {
+  if (session.size !== file.size) throw new Error("上传任务与文件大小不一致");
+  await sendUpload<void>(session.url, session.method, file, session.headers, options, false);
 }
 
 /**
@@ -368,20 +567,34 @@ export async function uploadFile(
   file: File,
   path?: string,
   idGroup?: string,
-  expirationDays?: number
+  expirationDays?: number,
+  randomFilename: boolean = true,
+  options: UploadTransferOptions = {}
 ): Promise<UploadResult> {
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("randomFilename", String(randomFilename));
   if (path) formData.append("path", path);
   if (idGroup) formData.append("idGroup", idGroup);
   if (expirationDays !== undefined) {
     formData.append("expirationDays", expirationDays.toString());
   }
 
-  return request("/upload", {
-    method: "POST",
-    body: formData,
-  });
+  return sendUpload<UploadResult>(`${API_BASE}/upload`, "POST", formData, {}, options, true);
+}
+
+export interface BatchDeleteFilesResponse {
+  results: { key: string; success: boolean; error?: string }[];
+  successCount: number;
+  failCount: number;
+}
+
+export async function batchDeleteFiles(accountId: string, keys: string[]): Promise<BatchDeleteFilesResponse> {
+  return request("/files/batch-delete", { method: "POST", body: JSON.stringify({ accountId, keys }) });
+}
+
+export async function setFilesExpiration(accountId: string, keys: string[], expiresAt: string | null): Promise<{ updatedCount: number }> {
+  return request("/files/expirations", { method: "PATCH", body: JSON.stringify({ accountId, keys, expiresAt }) });
 }
 
 export async function deleteFile(
@@ -435,6 +648,7 @@ export interface WebDAVCredential {
   isActive: boolean;
   createdAt: string;
   lastUsedAt: string;
+  userId: string;
 }
 
 export interface WebDAVCredentialRequest {
@@ -443,6 +657,7 @@ export interface WebDAVCredentialRequest {
   permissions: string[];
   username?: string;
   password?: string;
+  userId?: string;
 }
 
 export interface WebDAVCredentialUpdateRequest {

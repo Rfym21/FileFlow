@@ -9,17 +9,20 @@ import (
 )
 
 var (
-	// 全局锁系统实例
-	globalLockSystem LockSystem
-	lockSystemOnce   sync.Once
+	accountLockSystems = make(map[string]LockSystem)
+	accountLockMutex   sync.Mutex
 )
 
-// getLockSystem 获取全局锁系统实例
-func getLockSystem() LockSystem {
-	lockSystemOnce.Do(func() {
-		globalLockSystem = NewMemLS()
-	})
-	return globalLockSystem
+// Members sharing an account share its locks; separate buckets do not block each other.
+func getAccountLockSystem(accountID string) LockSystem {
+	accountLockMutex.Lock()
+	defer accountLockMutex.Unlock()
+	if locks := accountLockSystems[accountID]; locks != nil {
+		return locks
+	}
+	locks := NewMemLS()
+	accountLockSystems[accountID] = locks
+	return locks
 }
 
 /**
@@ -27,11 +30,6 @@ func getLockSystem() LockSystem {
  * 使用完整的 RFC 4918 实现
  */
 func NewRouter() http.Handler {
-	h := &Handler{
-		Prefix:     "/webdav",
-		LockSystem: getLockSystem(),
-	}
-
 	// 包装 Handler，注入存储和用户
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 从上下文获取凭证和账户
@@ -61,6 +59,7 @@ func NewRouter() http.Handler {
 		ctx := context.WithValue(r.Context(), storageKey, storage)
 		ctx = context.WithValue(ctx, userKey, user)
 
+		h := &Handler{Prefix: "/webdav", LockSystem: getAccountLockSystem(acc.ID)}
 		h.ServeHTTP(w, r.WithContext(ctx))
 	})
 
@@ -72,7 +71,7 @@ func NewRouter() http.Handler {
 func NewRouterWithAccount(acc *store.Account, cred *store.WebDAVCredential) http.Handler {
 	h := &Handler{
 		Prefix:     "",
-		LockSystem: getLockSystem(),
+		LockSystem: getAccountLockSystem(acc.ID),
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

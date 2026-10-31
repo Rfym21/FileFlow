@@ -60,17 +60,17 @@ func (u *WebDAVUser) CanWrite() bool {
 
 // CanMove 是否有移动权限
 func (u *WebDAVUser) CanMove() bool {
-	return u.cred.HasPermission("write")
+	return u.cred.HasPermission("write") && u.cred.HasPermission("delete")
 }
 
 // CanRename 是否有重命名权限
 func (u *WebDAVUser) CanRename() bool {
-	return u.cred.HasPermission("write")
+	return u.cred.HasPermission("write") && u.cred.HasPermission("delete")
 }
 
 // CanCopy 是否有复制权限
 func (u *WebDAVUser) CanCopy() bool {
-	return u.cred.HasPermission("write")
+	return u.cred.HasPermission("read") && u.cred.HasPermission("write")
 }
 
 // CanRemove 是否有删除权限

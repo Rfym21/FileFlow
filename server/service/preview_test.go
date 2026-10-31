@@ -33,7 +33,7 @@ func setupPreviewAccount(t *testing.T, endpoint string) *store.Account {
 	if err := store.Init(); err != nil {
 		t.Fatal(err)
 	}
-	account := &store.Account{Name: "private mock bucket", Endpoint: endpoint, BucketName: "bucket", AccessKeyId: "mock-access", SecretAccessKey: "mock-secret"}
+	account := &store.Account{Name: "private mock bucket", IsActive: true, Endpoint: endpoint, BucketName: "bucket", AccessKeyId: "mock-access", SecretAccessKey: "mock-secret"}
 	if err := store.CreateAccount(account); err != nil {
 		t.Fatal(err)
 	}

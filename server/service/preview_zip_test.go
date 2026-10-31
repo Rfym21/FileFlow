@@ -284,7 +284,7 @@ func TestZIPRangeReaderHasFixedBudgetAndCachesBlocks(t *testing.T) {
 	}))
 	defer server.Close()
 	account := &store.Account{Endpoint: server.URL, BucketName: "bucket", AccessKeyId: "mock-access", SecretAccessKey: "mock-secret"}
-	reader := &zipRangeReaderAt{ctx: context.Background(), client: getS3Client(account), bucket: account.BucketName, key: "metadata", size: size, blocks: make(map[int64][]byte)}
+	reader := &zipRangeReaderAt{ctx: context.Background(), client: newDirectS3Client(account), bucket: account.BucketName, key: "metadata", size: size, blocks: make(map[int64][]byte)}
 	buffer := make([]byte, 1)
 	for i := 0; i < maxZIPMetadataBytes/zipPreviewBlockBytes; i++ {
 		if _, err := reader.ReadAt(buffer, int64(i*zipPreviewBlockBytes)); err != nil {

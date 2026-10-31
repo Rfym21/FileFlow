@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"fileflow/server/service"
 	"fileflow/server/store"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -72,12 +73,14 @@ func (f *S3FileInfo) GetContentType() string { return f.contentType }
 type S3Storage struct {
 	client     *s3.Client
 	bucketName string
+	accountID  string
 }
 
 // NewS3Storage 创建 S3 存储适配器
 func NewS3Storage(acc *store.Account) (*S3Storage, error) {
 	cfg := aws.Config{
-		Region: "auto",
+		Region:     "auto",
+		HTTPClient: service.NewMeteredR2HTTPClient(acc.ID),
 		Credentials: credentials.NewStaticCredentialsProvider(
 			acc.AccessKeyId,
 			acc.SecretAccessKey,
@@ -92,6 +95,7 @@ func NewS3Storage(acc *store.Account) (*S3Storage, error) {
 	return &S3Storage{
 		client:     client,
 		bucketName: acc.BucketName,
+		accountID:  acc.ID,
 	}, nil
 }
 
@@ -150,6 +154,9 @@ func (s *S3Storage) List(ctx context.Context, dirPath string) ([]FileInfo, error
 		// 处理文件
 		for _, obj := range output.Contents {
 			key := *obj.Key
+			if service.IsPendingUploadKey(s.accountID, key) {
+				continue
+			}
 			// 跳过目录占位符
 			if strings.HasSuffix(key, "/") || key == prefix {
 				continue
@@ -191,6 +198,9 @@ func (s *S3Storage) List(ctx context.Context, dirPath string) ([]FileInfo, error
 // Get 获取文件/目录信息
 func (s *S3Storage) Get(ctx context.Context, filePath string) (FileInfo, error) {
 	key := pathToKey(filePath)
+	if service.IsPendingUploadKey(s.accountID, key) {
+		return nil, fmt.Errorf("file is not available")
+	}
 
 	// 根目录特殊处理
 	if key == "" {
@@ -278,6 +288,9 @@ func (s *S3Storage) Get(ctx context.Context, filePath string) (FileInfo, error) 
 // Open 打开文件获取读取流
 func (s *S3Storage) Open(ctx context.Context, filePath string) (io.ReadCloser, int64, error) {
 	key := pathToKey(filePath)
+	if service.IsPendingUploadKey(s.accountID, key) {
+		return nil, 0, fmt.Errorf("file is not available")
+	}
 
 	output, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucketName),
@@ -299,6 +312,9 @@ func (s *S3Storage) Open(ctx context.Context, filePath string) (io.ReadCloser, i
 // Put 上传文件
 func (s *S3Storage) Put(ctx context.Context, filePath string, reader io.Reader, size int64, contentType string) error {
 	key := pathToKey(filePath)
+	if service.IsPendingUploadKey(s.accountID, key) {
+		return fmt.Errorf("file upload is pending")
+	}
 
 	if contentType == "" {
 		contentType = "application/octet-stream"
@@ -328,6 +344,9 @@ func (s *S3Storage) MakeDir(ctx context.Context, dirPath string) error {
 	key := pathToKey(dirPath)
 	if !strings.HasSuffix(key, "/") {
 		key += "/"
+	}
+	if service.IsPendingUploadKey(s.accountID, key) {
+		return fmt.Errorf("file upload is pending")
 	}
 
 	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
@@ -393,6 +412,9 @@ func (s *S3Storage) removeDir(ctx context.Context, prefix string) error {
 		}
 
 		for _, obj := range listOutput.Contents {
+			if service.IsPendingUploadKey(s.accountID, aws.ToString(obj.Key)) {
+				continue
+			}
 			objects = append(objects, types.ObjectIdentifier{
 				Key: obj.Key,
 			})
@@ -445,6 +467,9 @@ func (s *S3Storage) Move(ctx context.Context, src, dst string) error {
 func (s *S3Storage) Copy(ctx context.Context, src, dst string) error {
 	srcKey := pathToKey(src)
 	dstKey := pathToKey(dst)
+	if service.IsPendingUploadKey(s.accountID, srcKey) || service.IsPendingUploadKey(s.accountID, dstKey) {
+		return fmt.Errorf("file upload is pending")
+	}
 
 	// 检查源是否为目录
 	info, err := s.Get(ctx, src)
@@ -496,6 +521,9 @@ func (s *S3Storage) copyDir(ctx context.Context, srcPrefix, dstPrefix string) er
 			srcKey := *obj.Key
 			relPath := strings.TrimPrefix(srcKey, srcPrefix)
 			dstKey := dstPrefix + relPath
+			if service.IsPendingUploadKey(s.accountID, srcKey) || service.IsPendingUploadKey(s.accountID, dstKey) {
+				continue
+			}
 
 			_, err := s.client.CopyObject(ctx, &s3.CopyObjectInput{
 				Bucket:     aws.String(s.bucketName),

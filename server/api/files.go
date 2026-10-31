@@ -15,7 +15,6 @@ import (
 	"fileflow/server/store"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // DownloadResult URL 下载结果
@@ -33,13 +32,8 @@ func downloadFromURL(rawURL string) (*DownloadResult, error) {
 		return nil, fmt.Errorf("无效的 URL，必须以 http:// 或 https:// 开头")
 	}
 
-	// 创建 HTTP 客户端（120秒超时）
-	client := &http.Client{
-		Timeout: 120 * time.Second,
-	}
-
-	// 发起 GET 请求
-	resp, err := client.Get(rawURL)
+	// Only fetch public HTTP(S) addresses, checking the actual connection and each redirect.
+	resp, err := service.DownloadPublicURL(rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("下载失败: %w", err)
 	}
@@ -121,6 +115,10 @@ func getExtFromContentType(contentType string) string {
 
 // GetFiles 获取文件列表（懒加载+分页）
 func GetFiles(c *gin.Context) {
+	if c.Query("flat") == "true" || strings.TrimSpace(c.Query("q")) != "" {
+		GetFileBrowser(c)
+		return
+	}
 	idGroupStr := c.Query("idGroup")
 	prefix := c.Query("prefix")
 	cursor := c.Query("cursor")
@@ -170,6 +168,7 @@ func Upload(c *gin.Context) {
 	var fileSize int64
 	var contentType string
 	var ext string
+	var originalFilename string
 
 	// 获取 url 参数
 	urlParam := c.PostForm("url")
@@ -197,6 +196,13 @@ func Upload(c *gin.Context) {
 		fileSize = downloadResult.Size
 		contentType = downloadResult.ContentType
 		ext = downloadResult.Ext
+		parsedURL, _ := url.Parse(urlParam)
+		if parsedURL != nil {
+			originalFilename = filepath.Base(parsedURL.Path)
+		}
+		if originalFilename == "" || originalFilename == "." || originalFilename == "/" {
+			originalFilename = "download" + ext
+		}
 	} else if hasFile {
 		// file 表单处理逻辑
 		defer file.Close()
@@ -205,6 +211,7 @@ func Upload(c *gin.Context) {
 		fileSize = header.Size
 		contentType = header.Header.Get("Content-Type")
 		ext = filepath.Ext(header.Filename)
+		originalFilename = header.Filename
 	} else {
 		// 两者都没有提供
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请提供 file 或 url 参数"})
@@ -228,53 +235,28 @@ func Upload(c *gin.Context) {
 		expirationDays = -1 // 使用默认设置
 	}
 
-	// 生成文件路径（始终使用 uuid+时间戳 重命名）
+	// 原有中转接口使用同一命名与配额规则，默认仍随机命名。
 	customPath := c.PostForm("path")
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	newFilename := fmt.Sprintf("%s_%d%s", uuid.New().String(), time.Now().UnixMilli(), ext)
-
-	var key string
-	if customPath != "" {
-		// 自定义路径 + 重命名后的文件名
-		customPath = strings.TrimPrefix(customPath, "/")
-		customPath = strings.TrimSuffix(customPath, "/")
-		key = fmt.Sprintf("%s/%s", customPath, newFilename)
-	} else {
-		// 默认按日期组织
-		key = fmt.Sprintf("%s/%s", time.Now().Format("2006/01/02"), newFilename)
+	randomFilename := true
+	if value := c.PostForm("randomFilename"); value != "" {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "randomFilename 参数无效"})
+			return
+		}
+		randomFilename = parsed
 	}
-
-	var result *service.UploadResult
-	var err error
-	if accountID != "" {
-		// 上传到指定账户（前端上传检查 client_upload 权限）
-		result, err = service.UploadToAccountForClient(c.Request.Context(), accountID, key, fileReader, contentType)
-	} else {
-		// 智能上传（自动选择具有 client_upload 权限的账户）
-		result, err = service.SmartUploadForClient(c.Request.Context(), key, fileReader, fileSize, contentType)
-	}
-
+	result, err := service.UploadRelay(c.Request.Context(), directUploadActor(c), service.DirectUploadRequest{Filename: originalFilename, Size: &fileSize,
+		ContentType: contentType, Path: customPath, IDGroup: accountID, ExpirationDays: &expirationDays, RandomFilename: &randomFilename}, fileReader)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		directUploadError(c, err)
 		return
 	}
 
-	// 创建文件到期记录
-	if expirationDays == -1 {
-		// 使用系统默认设置
-		settings := store.GetSettings()
-		expirationDays = settings.DefaultExpirationDays
-	}
-	if expirationDays > 0 {
-		// expirationDays > 0 才创建到期记录，0 表示永久不过期
-		if err := service.CreateFileExpirationRecord(result.ID, result.Key, expirationDays); err != nil {
-			// 到期记录创建失败不影响上传结果，仅记录日志
-			fmt.Printf("[Upload] 创建文件到期记录失败: %v\n", err)
-		}
-	}
-
+	c.Set("audit_target", result.ID+"/"+result.Key)
 	c.JSON(http.StatusOK, result)
 }
 

@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -353,11 +355,27 @@ func (b *MongoBackend) Load() (*Data, error) {
 		data.FileExpirations = append(data.FileExpirations, exp)
 	}
 
+	var teamDoc struct {
+		Value string `bson:"value"`
+	}
+	err = b.db.Collection(mongoSettingsColl).FindOne(b.ctx, bson.M{"_id": teamStateKey}).Decode(&teamDoc)
+	if err != nil && err != mongo.ErrNoDocuments {
+		return nil, fmt.Errorf("读取团队信息失败: %w", err)
+	}
+	if err == nil {
+		if err := applyTeamState(data, teamDoc.Value); err != nil {
+			return nil, err
+		}
+	}
 	return data, nil
 }
 
 // Save 保存全部数据到 MongoDB
 func (b *MongoBackend) Save(data *Data) error {
+	encodedTeam, err := marshalTeamState(data)
+	if err != nil {
+		return fmt.Errorf("保存团队信息失败: %w", err)
+	}
 	// 使用事务（如果 MongoDB 支持）
 	session, err := b.client.StartSession()
 	if err != nil {
@@ -538,14 +556,29 @@ func (b *MongoBackend) Save(data *Data) error {
 			}
 		}
 
+		if _, err := b.db.Collection(mongoSettingsColl).UpdateOne(sessCtx,
+			bson.M{"_id": teamStateKey}, bson.M{"$set": bson.M{"value": encodedTeam}}, options.Update().SetUpsert(true)); err != nil {
+			return nil, fmt.Errorf("保存团队信息失败: %w", err)
+		}
 		return nil, nil
 	})
 
+	// Standalone MongoDB starts sessions but rejects transactions before any write.
+	// Only this specific rejection is safe to retry without a transaction.
+	var commandError mongo.CommandError
+	if errors.As(err, &commandError) && commandError.Code == 20 &&
+		strings.Contains(commandError.Message, "Transaction numbers are only allowed") {
+		return b.saveWithoutTransaction(data)
+	}
 	return err
 }
 
 // saveWithoutTransaction 不使用事务保存数据
 func (b *MongoBackend) saveWithoutTransaction(data *Data) error {
+	encodedTeam, err := marshalTeamState(data)
+	if err != nil {
+		return fmt.Errorf("保存团队信息失败: %w", err)
+	}
 	// 清空并重新插入 accounts
 	accountsColl := b.db.Collection(mongoAccountsColl)
 	if _, err := accountsColl.DeleteMany(b.ctx, bson.M{}); err != nil {
@@ -629,7 +662,7 @@ func (b *MongoBackend) saveWithoutTransaction(data *Data) error {
 
 	// 保存 settings
 	settingsColl := b.db.Collection(mongoSettingsColl)
-	_, err := settingsColl.UpdateOne(b.ctx,
+	_, err = settingsColl.UpdateOne(b.ctx,
 		bson.M{"_id": "sync_interval"},
 		bson.M{"$set": bson.M{"value": data.Settings.SyncInterval}},
 		options.Update().SetUpsert(true))
@@ -717,6 +750,10 @@ func (b *MongoBackend) saveWithoutTransaction(data *Data) error {
 		}
 	}
 
+	if _, err := b.db.Collection(mongoSettingsColl).UpdateOne(b.ctx,
+		bson.M{"_id": teamStateKey}, bson.M{"$set": bson.M{"value": encodedTeam}}, options.Update().SetUpsert(true)); err != nil {
+		return fmt.Errorf("保存团队信息失败: %w", err)
+	}
 	return nil
 }
 

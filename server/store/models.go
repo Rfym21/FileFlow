@@ -35,6 +35,7 @@ type Account struct {
 	APIToken        string             `json:"apiToken"`     // Cloudflare API Token (用于 GraphQL 查询)
 	Quota           Quota              `json:"quota"`
 	Usage           Usage              `json:"usage"`
+	UsageRevision   uint64             `json:"-"`
 	Permissions     AccountPermissions `json:"permissions"` // 账户权限配置
 	CreatedAt       string             `json:"createdAt"`
 	UpdatedAt       string             `json:"updatedAt"`
@@ -42,8 +43,9 @@ type Account struct {
 
 // Quota 账户配额限制（用户手动配置）
 type Quota struct {
-	MaxSizeBytes  int64 `json:"maxSizeBytes"`  // 最大存储容量（字节）
-	MaxClassAOps  int64 `json:"maxClassAOps"`  // 最大 Class A 操作数
+	MaxSizeBytes int64 `json:"maxSizeBytes"` // 最大存储容量（字节）
+	MaxClassAOps int64 `json:"maxClassAOps"` // 最大 Class A 操作数
+	MaxClassBOps int64 `json:"maxClassBOps"` // 最大 Class B 操作数，0 兼容旧配置表示不限
 }
 
 // Usage 账户使用量（通过 R2 API 动态获取）
@@ -57,6 +59,7 @@ type Usage struct {
 // Token API 访问令牌
 type Token struct {
 	ID          string   `json:"id"`
+	UserID      string   `json:"userId"`
 	Name        string   `json:"name"`
 	Token       string   `json:"token"`
 	Permissions []string `json:"permissions"` // read, write, delete
@@ -66,9 +69,10 @@ type Token struct {
 // WebDAVCredential WebDAV 访问凭证
 type WebDAVCredential struct {
 	ID          string   `json:"id"`
-	Username    string   `json:"username"`    // WebDAV 用户名
-	Password    string   `json:"password"`    // WebDAV 密码
-	AccountID   string   `json:"accountId"`   // 关联的账户 ID
+	UserID      string   `json:"userId"`
+	Username    string   `json:"username"`  // WebDAV 用户名
+	Password    string   `json:"password"`  // WebDAV 密码
+	AccountID   string   `json:"accountId"` // 关联的账户 ID
 	Description string   `json:"description"`
 	Permissions []string `json:"permissions"` // read, write, delete
 	IsActive    bool     `json:"isActive"`
@@ -106,11 +110,15 @@ type Settings struct {
 
 // Data 存储的完整数据结构
 type Data struct {
-	Accounts          []Account          `json:"accounts"`
-	Tokens            []Token            `json:"tokens"`
-	WebDAVCredentials []WebDAVCredential `json:"webdavCredentials"`
-	FileExpirations   []FileExpiration   `json:"fileExpirations"`
-	Settings          Settings           `json:"settings"`
+	Users             []User                           `json:"users"`
+	AuditEntries      []AuditEntry                     `json:"auditEntries"`
+	UploadSessions    []UploadSession                  `json:"uploadSessions"`
+	OperationUsage    map[string]AccountOperationUsage `json:"operationUsage,omitempty"`
+	Accounts          []Account                        `json:"accounts"`
+	Tokens            []Token                          `json:"tokens"`
+	WebDAVCredentials []WebDAVCredential               `json:"webdavCredentials"`
+	FileExpirations   []FileExpiration                 `json:"fileExpirations"`
+	Settings          Settings                         `json:"settings"`
 }
 
 // HasPermission 检查 Token 是否有指定权限

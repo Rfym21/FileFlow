@@ -128,6 +128,9 @@ func classifyPreviewMIME(contentType string) previewFormat {
 
 // GetFilePreview 使用账户凭据生成短期 R2 链接；文本内容仅从该账户读取。
 func GetFilePreview(ctx context.Context, accountID, key string) (*FilePreview, error) {
+	if IsPendingUploadKey(accountID, key) {
+		return nil, fmt.Errorf("%w: 文件上传尚未确认", ErrInvalidFilePreview)
+	}
 	if strings.TrimSpace(accountID) == "" || strings.TrimSpace(key) == "" || strings.HasSuffix(key, "/") {
 		return nil, fmt.Errorf("%w: 请选择一个文件并提供账户 ID", ErrInvalidFilePreview)
 	}
@@ -146,6 +149,9 @@ func GetFilePreview(ctx context.Context, accountID, key string) (*FilePreview, e
 		format = classifyPreviewMIME(aws.ToString(metadata.ContentType))
 	}
 	presigner := s3.NewPresignClient(client)
+	if err := ChargeAccountOperations(account.ID, 0, 2); err != nil {
+		return nil, err
+	}
 	input := &s3.GetObjectInput{
 		Bucket:                     aws.String(account.BucketName),
 		Key:                        aws.String(key),

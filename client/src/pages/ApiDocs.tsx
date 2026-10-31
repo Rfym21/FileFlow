@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import DirectUploadDocs from "@/components/DirectUploadDocs";
 
 /**
  * API 文档页面
@@ -12,7 +13,7 @@ export default function ApiDocs() {
       <div>
         <h1 className="text-3xl font-bold">开放 API 文档</h1>
         <p className="text-muted-foreground mt-2">
-          FileFlow 提供 RESTful API 供外部应用调用，需要使用 API Token 进行认证
+          FileFlow 提供 RESTful API，支持团队成员的登录凭证或 API Token 认证
         </p>
       </div>
 
@@ -23,14 +24,14 @@ export default function ApiDocs() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-muted-foreground">
-            在请求头中添加 <code className="bg-muted px-1.5 py-0.5 rounded">Authorization</code> 字段，使用 Bearer Token 格式：
+            在请求头中添加 <code className="bg-muted px-1.5 py-0.5 rounded">Authorization</code> 字段，使用 Bearer Token 格式。文件接口支持网页登录获得的 JWT，也支持 API Token：
           </p>
           <pre className="bg-muted p-4 rounded-lg text-sm overflow-x-auto">
 {`curl -X GET "${baseUrl}/api/files" \\
   -H "Authorization: Bearer your-api-token"`}
           </pre>
           <p className="text-xs text-muted-foreground">
-            API Token 可在「设置 → API Token」页面创建和管理
+            所有者或管理员可在「设置 → 令牌管理」为成员创建 API Token。成员停用后，其 Token 立即停止访问。
           </p>
         </CardContent>
       </Card>
@@ -52,7 +53,7 @@ export default function ApiDocs() {
               <tbody className="divide-y">
                 <tr>
                   <td className="py-2 pr-4"><Badge variant="secondary">read</Badge></td>
-                  <td className="py-2 text-muted-foreground">获取文件列表、获取文件链接</td>
+                  <td className="py-2 text-muted-foreground">获取文件列表、获取文件链接、预览和下载文件</td>
                 </tr>
                 <tr>
                   <td className="py-2 pr-4"><Badge variant="secondary">write</Badge></td>
@@ -65,6 +66,8 @@ export default function ApiDocs() {
               </tbody>
             </table>
           </div>
+          <p className="mt-4 text-sm text-muted-foreground">只读成员具有 read 权限，可读写成员具有 read、write、delete 权限。所有者和管理员额外具有 manage 权限，可管理成员、存储账户、系统设置与访问凭证；这些管理接口仅支持网页登录 JWT。</p>
+          <p className="mt-2 text-xs text-muted-foreground">JWT 权限由成员当前角色决定，登录有效期为 24 小时。API Token 的实际权限取令牌配置与所属成员当前权限的交集，不能通过令牌获得额外权限。</p>
         </CardContent>
       </Card>
 
@@ -99,7 +102,7 @@ export default function ApiDocs() {
                       <td className="py-2 pr-4"><code>idGroup</code></td>
                       <td className="py-2 pr-4 text-muted-foreground">string[]</td>
                       <td className="py-2 pr-4 text-muted-foreground">否</td>
-                      <td className="py-2 text-muted-foreground">指定账户 ID（可重复传递多个），不填则查询所有账户</td>
+                      <td className="py-2 text-muted-foreground">账户 ID，多个账户用逗号分隔；不填则查询所有账户</td>
                     </tr>
                     <tr>
                       <td className="py-2 pr-4"><code>prefix</code></td>
@@ -196,7 +199,7 @@ curl -X GET "${baseUrl}/api/files?idGroup=xxx&prefix=images/&limit=20" \\
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-muted-foreground">上传文件（可指定账户，不指定则智能选择）。支持两种方式：直接上传文件或从 URL 下载后上传。</p>
+            <p className="text-muted-foreground">服务器中转上传（可指定账户，不指定则智能选择）。支持提交文件或从公网 URL 下载后上传。</p>
             <div>
               <p className="text-sm font-medium mb-2">请求参数（multipart/form-data）</p>
               <div className="overflow-x-auto">
@@ -234,11 +237,12 @@ curl -X GET "${baseUrl}/api/files?idGroup=xxx&prefix=images/&limit=20" \\
                       <td className="py-2 pr-4 text-muted-foreground">否</td>
                       <td className="py-2 text-muted-foreground">指定上传到的账户 ID，不填则智能选择</td>
                     </tr>
+                    <tr><td className="py-2 pr-4"><code>randomFilename</code></td><td className="py-2 pr-4 text-muted-foreground">boolean string</td><td className="py-2 pr-4 text-muted-foreground">否</td><td className="py-2 text-muted-foreground">默认 true；传 false 保留原文件名，同名文件拒绝上传</td></tr>
                     <tr>
                       <td className="py-2 pr-4"><code>expirationDays</code></td>
                       <td className="py-2 pr-4 text-muted-foreground">number</td>
                       <td className="py-2 pr-4 text-muted-foreground">否</td>
-                      <td className="py-2 text-muted-foreground">文件有效期（天）。不填或 -1=使用系统默认，0=永久，&gt;0=指定天数</td>
+                      <td className="py-2 text-muted-foreground">文件有效期（天）。不填或 -1=使用系统默认，0=永久，1–3650=指定天数</td>
                     </tr>
                   </tbody>
                 </table>
@@ -287,6 +291,8 @@ curl -X POST "${baseUrl}/api/upload" \\
             </div>
           </CardContent>
         </Card>
+
+        <DirectUploadDocs baseUrl={baseUrl} />
 
         {/* 获取文件链接 */}
         <Card>
@@ -442,6 +448,10 @@ curl -X POST "${baseUrl}/api/upload" \\
                     <td className="py-2 pr-4 font-medium">404</td>
                     <td className="py-2 text-muted-foreground">资源不存在</td>
                   </tr>
+                  <tr><td className="py-2 pr-4 font-medium">409</td><td className="py-2 text-muted-foreground">同名文件或上传任务冲突</td></tr>
+                  <tr><td className="py-2 pr-4 font-medium">410</td><td className="py-2 text-muted-foreground">上传任务已过期</td></tr>
+                  <tr><td className="py-2 pr-4 font-medium">412</td><td className="py-2 text-muted-foreground">R2 条件上传发现同名对象，未覆盖文件</td></tr>
+                  <tr><td className="py-2 pr-4 font-medium">429</td><td className="py-2 text-muted-foreground">可用容量、请求额度或并发任务数量不足</td></tr>
                   <tr>
                     <td className="py-2 pr-4 font-medium">500</td>
                     <td className="py-2 text-muted-foreground">服务器内部错误</td>

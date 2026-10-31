@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"fileflow/server/middleware"
 	"fileflow/server/store"
 )
 
@@ -70,6 +71,18 @@ func AuthMiddleware() func(http.Handler) http.Handler {
 				return
 			}
 
+			member, err := store.GetUserByID(cred.UserID)
+			if err != nil || !member.IsActive {
+				w.Header().Set("WWW-Authenticate", `Basic realm="WebDAV"`)
+				http.Error(w, "Member is disabled", http.StatusUnauthorized)
+				return
+			}
+			cred.Permissions = middleware.EffectivePermissions(member.Role, cred.Permissions)
+			if len(cred.Permissions) == 0 {
+				http.Error(w, "Permission denied", http.StatusForbidden)
+				return
+			}
+
 			// 获取关联的账户
 			acc, err := store.GetAccountByID(cred.AccountID)
 			if err != nil {
@@ -99,9 +112,36 @@ func AuthMiddleware() func(http.Handler) http.Handler {
 			ctx := context.WithValue(r.Context(), credentialContextKey, cred)
 			ctx = context.WithValue(ctx, accountContextKey, acc)
 
-			next.ServeHTTP(w, r.WithContext(ctx))
+			response := &webDAVResponseWriter{ResponseWriter: w, status: http.StatusOK}
+			next.ServeHTTP(response, r.WithContext(ctx))
+			switch r.Method {
+			case "PUT", "DELETE", "MKCOL", "COPY", "MOVE", "PROPPATCH", "LOCK", "UNLOCK":
+				_ = store.AppendAuditEntry(&store.AuditEntry{UserID: member.ID, Username: member.Username, Action: "webdav." + strings.ToLower(r.Method), Target: acc.ID + ":" + r.URL.Path, Status: response.status})
+			}
 		})
 	}
+}
+
+type webDAVResponseWriter struct {
+	http.ResponseWriter
+	status  int
+	written bool
+}
+
+func (w *webDAVResponseWriter) WriteHeader(status int) {
+	if w.written {
+		return
+	}
+	w.written = true
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *webDAVResponseWriter) Write(body []byte) (int, error) {
+	if !w.written {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(body)
 }
 
 /**

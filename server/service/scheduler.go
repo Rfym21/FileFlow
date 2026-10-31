@@ -23,6 +23,7 @@ func StartScheduler() {
 
 	settings := store.GetSettings()
 	scheduler = cron.New()
+	registerDirectUploadCleanup(scheduler)
 
 	// 同步使用量任务，将分钟数转换为 cron 表达式
 	syncInterval := settings.SyncInterval
@@ -82,6 +83,7 @@ func ReloadScheduler() {
 	// 重新创建调度器
 	settings := store.GetSettings()
 	scheduler = cron.New()
+	registerDirectUploadCleanup(scheduler)
 
 	// 同步使用量任务
 	syncInterval := settings.SyncInterval
@@ -117,4 +119,10 @@ func ReloadScheduler() {
 
 	scheduler.Start()
 	log.Printf("[Scheduler] 定时任务调度器已重载 (同步间隔: %d 分钟, 过期检查间隔: %d 分钟)", syncInterval, expCheckInterval)
+}
+
+func registerDirectUploadCleanup(target *cron.Cron) {
+	if _, err := target.AddFunc("*/5 * * * *", func() { CleanupDirectUploads(context.Background()) }); err != nil {
+		log.Printf("[Scheduler] 添加直传任务清理失败: %v", err)
+	}
 }

@@ -50,7 +50,10 @@ func Init() error {
 	log.Printf("使用数据库后端: %s", backendType)
 
 	// 加载数据
-	return load()
+	if err := load(); err != nil {
+		return err
+	}
+	return BootstrapOwner(cfg.AdminUser, cfg.AdminPassword)
 }
 
 // Close 关闭存储
@@ -89,7 +92,10 @@ func GetAccounts() []Account {
 	defer dataLock.RUnlock()
 
 	result := make([]Account, len(data.Accounts))
-	copy(result, data.Accounts)
+	now := time.Now().UTC()
+	for i, account := range data.Accounts {
+		result[i] = operationUsageView(account, now)
+	}
 	return result
 }
 
@@ -139,6 +145,10 @@ func GetAccountsPaged(page, pageSize int) AccountsPage {
 
 	result := make([]Account, end-start)
 	copy(result, data.Accounts[start:end])
+	now := time.Now().UTC()
+	for i := range result {
+		result[i] = operationUsageView(result[i], now)
+	}
 
 	return AccountsPage{
 		Items:      result,
@@ -167,8 +177,10 @@ func GetAccountsStats() AccountsStats {
 	stats := AccountsStats{
 		TotalAccounts: len(data.Accounts),
 	}
+	now := time.Now().UTC()
 
 	for _, acc := range data.Accounts {
+		acc = operationUsageView(acc, now)
 		if acc.IsAvailable() {
 			stats.AvailableCount++
 		}
@@ -187,7 +199,9 @@ func GetActiveAccounts() []Account {
 	defer dataLock.RUnlock()
 
 	var result []Account
+	now := time.Now().UTC()
 	for _, acc := range data.Accounts {
+		acc = operationUsageView(acc, now)
 		if acc.IsActive {
 			result = append(result, acc)
 		}
@@ -201,7 +215,9 @@ func GetAvailableAccounts() []Account {
 	defer dataLock.RUnlock()
 
 	var result []Account
+	now := time.Now().UTC()
 	for _, acc := range data.Accounts {
+		acc = operationUsageView(acc, now)
 		if acc.IsAvailable() {
 			result = append(result, acc)
 		}
@@ -215,7 +231,9 @@ func GetAvailableAccountsForAutoUpload() []Account {
 	defer dataLock.RUnlock()
 
 	var result []Account
+	now := time.Now().UTC()
 	for _, acc := range data.Accounts {
+		acc = operationUsageView(acc, now)
 		if acc.IsAvailableForAutoUpload() {
 			result = append(result, acc)
 		}
@@ -229,7 +247,9 @@ func GetAvailableAccountsForClientUpload() []Account {
 	defer dataLock.RUnlock()
 
 	var result []Account
+	now := time.Now().UTC()
 	for _, acc := range data.Accounts {
+		acc = operationUsageView(acc, now)
 		if acc.IsAvailableForClientUpload() {
 			result = append(result, acc)
 		}
@@ -244,7 +264,7 @@ func GetAccountByID(id string) (*Account, error) {
 
 	for _, acc := range data.Accounts {
 		if acc.ID == id {
-			result := acc
+			result := operationUsageView(acc, time.Now().UTC())
 			return &result, nil
 		}
 	}
@@ -253,6 +273,9 @@ func GetAccountByID(id string) (*Account, error) {
 
 // CreateAccount 创建账户
 func CreateAccount(acc *Account) error {
+	if acc == nil || acc.Quota.MaxClassBOps < 0 {
+		return fmt.Errorf("读取配额不能为负数")
+	}
 	dataLock.Lock()
 	defer dataLock.Unlock()
 
@@ -266,6 +289,9 @@ func CreateAccount(acc *Account) error {
 
 // UpdateAccount 更新账户
 func UpdateAccount(acc *Account) error {
+	if acc == nil || acc.Quota.MaxClassBOps < 0 {
+		return fmt.Errorf("读取配额不能为负数")
+	}
 	dataLock.Lock()
 	defer dataLock.Unlock()
 
@@ -273,6 +299,9 @@ func UpdateAccount(acc *Account) error {
 		if a.ID == acc.ID {
 			acc.UpdatedAt = NowString()
 			acc.CreatedAt = a.CreatedAt // 保留创建时间
+			// Account settings edits cannot overwrite concurrent upload accounting.
+			acc.Usage = a.Usage
+			acc.UsageRevision = a.UsageRevision
 			data.Accounts[i] = *acc
 			return save()
 		}
@@ -282,15 +311,44 @@ func UpdateAccount(acc *Account) error {
 
 // UpdateAccountUsage 更新账户使用量
 func UpdateAccountUsage(id string, usage Usage) error {
+	return updateAccountUsage(id, usage, nil)
+}
+
+// UpdateAccountUsageSnapshot refuses a stale scan's size after a local upload
+// completed or another size update committed during the scan.
+func UpdateAccountUsageSnapshot(id string, usage Usage, revision uint64) error {
+	return updateAccountUsage(id, usage, &revision)
+}
+
+func updateAccountUsage(id string, usage Usage, revision *uint64) error {
 	dataLock.Lock()
 	defer dataLock.Unlock()
 
 	for i, a := range data.Accounts {
 		if a.ID == id {
+			previous := data.Accounts[i]
+			previousLedger := data.OperationUsage
+			now := time.Now().UTC()
+			if revision != nil && *revision != previous.UsageRevision {
+				usage.SizeBytes = previous.Usage.SizeBytes
+			}
+			if usage.SizeBytes != previous.Usage.SizeBytes {
+				data.Accounts[i].UsageRevision++
+			}
+			if ledger, exists := data.OperationUsage[id]; exists && ledger.Month == now.Format("2006-01") {
+				usage.ClassAOps = max(usage.ClassAOps, ledger.ClassAOps)
+				usage.ClassBOps = max(usage.ClassBOps, ledger.ClassBOps)
+			}
 			data.Accounts[i].Usage = usage
-			data.Accounts[i].Usage.LastSyncAt = NowString()
-			data.Accounts[i].UpdatedAt = NowString()
-			return save()
+			data.Accounts[i].Usage.LastSyncAt = now.Format(time.RFC3339)
+			data.Accounts[i].UpdatedAt = now.Format(time.RFC3339)
+			recordOperationUsage(data.Accounts[i], now)
+			if err := save(); err != nil {
+				data.Accounts[i] = previous
+				data.OperationUsage = previousLedger
+				return err
+			}
+			return nil
 		}
 	}
 	return fmt.Errorf("账户不存在: %s", id)
@@ -338,13 +396,23 @@ func GetTokenByValue(tokenValue string) (*Token, error) {
 func CreateToken(t *Token) error {
 	dataLock.Lock()
 	defer dataLock.Unlock()
+	user, err := credentialUser(t.UserID, t.Permissions)
+	if err != nil {
+		return err
+	}
+	t.UserID = user.ID
 
 	t.ID = uuid.New().String()
 	t.Token = "sk-" + generateRandomString(61)
 	t.CreatedAt = NowString()
 
-	data.Tokens = append(data.Tokens, *t)
-	return save()
+	previous := data.Tokens
+	data.Tokens = append(append([]Token(nil), data.Tokens...), *t)
+	if err := save(); err != nil {
+		data.Tokens = previous
+		return err
+	}
+	return nil
 }
 
 // generateRandomString 生成指定长度的随机字符串（大小写字母和数字）
@@ -365,8 +433,13 @@ func DeleteToken(id string) error {
 
 	for i, t := range data.Tokens {
 		if t.ID == id {
-			data.Tokens = append(data.Tokens[:i], data.Tokens[i+1:]...)
-			return save()
+			previous := data.Tokens
+			data.Tokens = append(append([]Token(nil), previous[:i]...), previous[i+1:]...)
+			if err := save(); err != nil {
+				data.Tokens = previous
+				return err
+			}
+			return nil
 		}
 	}
 	return fmt.Errorf("Token 不存在: %s", id)

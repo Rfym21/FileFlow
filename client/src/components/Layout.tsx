@@ -3,6 +3,9 @@ import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
 import { Button } from "@/components/ui/button";
+import { TEAM_ROLES } from "@/lib/api";
+import { toast } from "sonner";
+import ProfileDialog from "@/components/ProfileDialog";
 import {
   Cloud,
   LayoutDashboard,
@@ -22,14 +25,18 @@ import {
   Network,
   FolderTree,
   Clock,
+  Users,
+  UserRound,
+  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const navItems = [
+const navItems: { to: string; icon: LucideIcon; label: string; manage?: boolean }[] = [
   { to: "/", icon: LayoutDashboard, label: "仪表盘" },
   { to: "/files", icon: FolderOpen, label: "文件管理" },
   { to: "/scheduled-deletions", icon: Clock, label: "计划删除" },
-  { to: "/settings", icon: Settings, label: "设置" },
+  { to: "/team", icon: Users, label: "团队成员", manage: true },
+  { to: "/settings", icon: Settings, label: "设置", manage: true },
   { to: "/guide", icon: BookOpen, label: "参数指南" },
   { to: "/proxy-guide", icon: Network, label: "代理部署" },
   { to: "/api-docs", icon: FileCode, label: "API 文档" },
@@ -37,12 +44,14 @@ const navItems = [
 ];
 
 export default function Layout() {
-  const { logout } = useAuth();
+  const { logout, profile, user, can } = useAuth();
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   // 关闭移动端菜单当路由变化时
   useEffect(() => {
@@ -61,9 +70,17 @@ export default function Layout() {
     };
   }, [mobileOpen]);
 
-  const handleLogout = () => {
-    logout();
-    navigate("/login");
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await logout();
+    } catch {
+      toast.error("已退出当前浏览器，其他设备的会话撤销失败，请稍后重试");
+    } finally {
+      setLoggingOut(false);
+      navigate("/login", { replace: true });
+    }
   };
 
   const cycleTheme = () => {
@@ -149,8 +166,8 @@ export default function Layout() {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 space-y-1 p-2">
-            {navItems.map((item) => (
+          <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
+            {navItems.filter((item) => !item.manage || can("manage")).map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
@@ -193,7 +210,9 @@ export default function Layout() {
               </Button>
             </div>
 
-            {/* GitHub Info */}
+            <div className="px-2 pb-2"><Button variant="ghost" size={collapsed ? "icon" : "sm"} className={cn("w-full", collapsed ? "lg:justify-center" : "justify-start gap-2")} onClick={handleGithubClick} title="访问项目仓库"><Github className="h-4 w-4" /><span className={cn("text-xs", collapsed && "lg:hidden")}>项目仓库</span></Button></div>
+
+            {/* Member Info */}
             <div className={cn("p-2", collapsed ? "lg:px-2" : "px-3")}>
               {collapsed ? (
                 <>
@@ -202,12 +221,12 @@ export default function Layout() {
                     variant="ghost"
                     size="icon"
                     className="hidden lg:flex w-full"
-                    title="访问 GitHub 仓库"
-                    onClick={handleGithubClick}
+                    title="个人信息与修改密码"
+                    onClick={() => setProfileOpen(true)}
                   >
                     <div className="relative">
                       <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                        <Github className="h-4 w-4 text-primary" />
+                        <UserRound className="h-4 w-4 text-primary" />
                       </div>
                       <div className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-green-500 border-2 border-card" />
                     </div>
@@ -215,56 +234,58 @@ export default function Layout() {
                   {/* Mobile - Always show full */}
                   <div className="lg:hidden rounded-lg bg-accent/50 p-3 space-y-3">
                     <button
-                      onClick={handleGithubClick}
+                      onClick={() => setProfileOpen(true)}
                       className="w-full flex items-center gap-3 hover:opacity-80 transition-opacity"
                     >
                       <div className="relative">
                         <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                          <Github className="h-5 w-5 text-primary" />
+                          <UserRound className="h-5 w-5 text-primary" />
                         </div>
                         <div className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-green-500 border-2 border-card" />
                       </div>
                       <div className="flex-1 min-w-0 text-left">
-                        <div className="text-sm font-medium truncate">admin</div>
-                        <div className="text-xs text-muted-foreground">管理员</div>
+                        <div className="text-sm font-medium truncate">{profile?.displayName || user}</div>
+                        <div className="text-xs text-muted-foreground">{profile ? TEAM_ROLES[profile.role].label : "团队成员"}</div>
                       </div>
                     </button>
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={handleLogout}
+                      disabled={loggingOut}
                       className="w-full justify-start gap-2 h-8 text-xs"
                     >
                       <LogOut className="h-3.5 w-3.5" />
-                      退出登录
+                      退出所有设备
                     </Button>
                   </div>
                 </>
               ) : (
                 <div className="rounded-lg bg-accent/50 p-3 space-y-3">
                   <button
-                    onClick={handleGithubClick}
+                    onClick={() => setProfileOpen(true)}
                     className="w-full flex items-center gap-3 hover:opacity-80 transition-opacity"
                   >
                     <div className="relative">
                       <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                        <Github className="h-5 w-5 text-primary" />
+                        <UserRound className="h-5 w-5 text-primary" />
                       </div>
                       <div className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-green-500 border-2 border-card" />
                     </div>
                     <div className="flex-1 min-w-0 text-left">
-                      <div className="text-sm font-medium truncate">admin</div>
-                      <div className="text-xs text-muted-foreground">管理员</div>
+                      <div className="text-sm font-medium truncate">{profile?.displayName || user}</div>
+                      <div className="text-xs text-muted-foreground">{profile ? TEAM_ROLES[profile.role].label : "团队成员"}</div>
                     </div>
                   </button>
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={handleLogout}
+                    disabled={loggingOut}
                     className="w-full justify-start gap-2 h-8 text-xs"
                   >
                     <LogOut className="h-3.5 w-3.5" />
-                    退出登录
+                    退出所有设备
                   </Button>
                 </div>
               )}
@@ -294,6 +315,8 @@ export default function Layout() {
           </div>
         </div>
       </aside>
+
+      <ProfileDialog open={profileOpen} onOpenChange={setProfileOpen} />
 
       {/* Main content */}
       <main

@@ -24,6 +24,9 @@ import { cn } from "@/lib/utils";
 import FileUploader from "@/components/FileUploader";
 import FilePreviewDialog from "@/components/FilePreviewDialog";
 import ConfirmationDialog from "@/components/ConfirmationDialog";
+import { useAuth } from "@/hooks/useAuth";
+import FlatFileBrowser from "@/components/FlatFileBrowser";
+import { Input } from "@/components/ui/input";
 
 const PAGE_SIZE = 50;
 
@@ -38,6 +41,7 @@ export default function AccountFilesDetail() {
 }
 
 function AccountFilesDetailContent({ accountId }: { accountId?: string }) {
+  const { can } = useAuth();
   const navigate = useNavigate();
   const [accountInfo, setAccountInfo] = useState<{
     name: string;
@@ -51,6 +55,11 @@ function AccountFilesDetailContent({ accountId }: { accountId?: string }) {
   const [loading, setLoading] = useState(!!accountId);
   const [loadingMore, setLoadingMore] = useState(false);
   const [showUploader, setShowUploader] = useState(false);
+  const [flatMode, setFlatMode] = useState(false);
+  const [searchDraft, setSearchDraft] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [flatRefreshKey, setFlatRefreshKey] = useState(0);
+  const [flatBusy, setFlatBusy] = useState(false);
   const [previewFile, setPreviewFile] = useState<FileNode | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{
     key: string;
@@ -150,13 +159,13 @@ function AccountFilesDetailContent({ accountId }: { accountId?: string }) {
    * 删除文件或目录
    */
   const handleDelete = (key: string) => {
-    if (!accountId || deleteInFlight.current) return;
+    if (!can("delete") || !accountId || deleteInFlight.current) return;
     setDeleteTarget({ key, isDir: key.endsWith("/") });
     setDeleteError("");
   };
 
   const performDelete = async () => {
-    if (!accountId || !deleteTarget || deleteInFlight.current) return;
+    if (!can("delete") || !accountId || !deleteTarget || deleteInFlight.current) return;
     deleteInFlight.current = true;
     setDeleting(true);
     setDeleteError("");
@@ -204,8 +213,12 @@ function AccountFilesDetailContent({ accountId }: { accountId?: string }) {
    * 上传完成后刷新
    */
   const handleUploadComplete = () => {
-    refreshFiles(currentPathRef.current);
+    if (flatMode) setFlatRefreshKey((value) => value + 1);
+    else refreshFiles(currentPathRef.current);
   };
+  const updateFlatInfo = useCallback((info: { accountName: string; sizeBytes: number; maxSize: number }) => {
+    setAccountInfo({ name: info.accountName, sizeBytes: info.sizeBytes, maxSize: info.maxSize });
+  }, []);
 
   useEffect(() => {
     void loadFiles("");
@@ -268,8 +281,8 @@ function AccountFilesDetailContent({ accountId }: { accountId?: string }) {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => refreshFiles(currentPath)}
-            disabled={loading}
+            onClick={() => flatMode ? setFlatRefreshKey((value) => value + 1) : refreshFiles(currentPath)}
+            disabled={loading || flatBusy}
             className="flex-1 sm:flex-none"
           >
             <RefreshCw
@@ -277,7 +290,7 @@ function AccountFilesDetailContent({ accountId }: { accountId?: string }) {
             />
             <span className="hidden sm:inline">刷新</span>
           </Button>
-          <Button
+          {can("write") && <Button
             size="sm"
             onClick={() => setShowUploader(!showUploader)}
             className="flex-1 sm:flex-none"
@@ -289,12 +302,16 @@ function AccountFilesDetailContent({ accountId }: { accountId?: string }) {
             ) : (
               <ChevronDown className="ml-1 h-4 w-4" />
             )}
-          </Button>
+          </Button>}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex gap-1" role="group" aria-label="文件浏览方式"><Button size="sm" variant={!flatMode ? "default" : "outline"} disabled={flatBusy} onClick={() => { setFlatMode(false); setSearchQuery(""); setSearchDraft(""); }}>目录浏览</Button><Button size="sm" variant={flatMode ? "default" : "outline"} disabled={flatBusy} onClick={() => setFlatMode(true)}>扁平化浏览</Button></div>
+          <form className="flex min-w-0 flex-1 gap-2" onSubmit={(event) => { event.preventDefault(); if (flatBusy) return; const next = searchDraft.trim(); if (flatMode && next === searchQuery) setFlatRefreshKey((value) => value + 1); setSearchQuery(next); setFlatMode(true); }}><Input aria-label="搜索账户文件" maxLength={200} disabled={flatBusy} placeholder="搜索整个账户的文件名或路径" value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} className="min-w-40 flex-1" /><Button variant="outline" type="submit" size="sm" disabled={flatBusy}>搜索</Button>{searchQuery && <Button variant="ghost" type="button" size="sm" disabled={flatBusy} onClick={() => { setSearchDraft(""); setSearchQuery(""); }}>清除</Button>}</form>
         </div>
       </div>
 
       {/* 上传区域 */}
-      {showUploader && (
+      {can("write") && showUploader && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base sm:text-lg">
@@ -312,7 +329,7 @@ function AccountFilesDetailContent({ accountId }: { accountId?: string }) {
       )}
 
       {/* 面包屑导航 */}
-      <Card>
+      {!flatMode && <Card>
         <CardContent className="p-3 sm:p-4">
           <div className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm overflow-x-auto pb-2 scrollbar-hide">
             <Button
@@ -346,10 +363,10 @@ function AccountFilesDetailContent({ accountId }: { accountId?: string }) {
             })}
           </div>
         </CardContent>
-      </Card>
+      </Card>}
 
       {/* 文件列表 */}
-      <Card>
+      {!flatMode && <Card>
         <CardHeader>
           <CardTitle className="text-base sm:text-lg">
             当前目录 ({files.length} 项{nextCursor ? "+" : ""})
@@ -367,7 +384,7 @@ function AccountFilesDetailContent({ accountId }: { accountId?: string }) {
           ) : files.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-muted-foreground text-sm">空目录</p>
-              {!showUploader && (
+              {can("write") && !showUploader && (
                 <Button
                   variant="outline"
                   className="mt-4"
@@ -388,15 +405,17 @@ function AccountFilesDetailContent({ accountId }: { accountId?: string }) {
                   onDelete={handleDelete}
                   onCopyLink={handleCopyLink}
                   onPreview={setPreviewFile}
+                  canDelete={can("delete")}
                 />
               ))}
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card>}
+      {flatMode && accountId && <FlatFileBrowser key={accountId + ":" + (searchQuery ? "" : currentPath) + ":" + searchQuery} accountId={accountId} prefix={searchQuery ? "" : currentPath} query={searchQuery} refreshKey={flatRefreshKey} onAccountInfo={updateFlatInfo} onBusyChange={setFlatBusy} />}
 
       {/* 加载更多 */}
-      {nextCursor && (
+      {!flatMode && nextCursor && (
         <div className="flex justify-center">
           <Button
             variant="outline"
@@ -425,7 +444,7 @@ function AccountFilesDetailContent({ accountId }: { accountId?: string }) {
         />
       )}
       <ConfirmationDialog
-        open={deleteTarget !== null}
+        open={can("delete") && deleteTarget !== null}
         onOpenChange={(open) => {
           if (!open && !deleteInFlight.current) {
             setDeleteTarget(null);
@@ -462,6 +481,7 @@ interface FileManagerItemProps {
   onDelete: (key: string) => void;
   onCopyLink: (key: string) => void;
   onPreview: (file: FileNode) => void;
+  canDelete: boolean;
 }
 
 function FileManagerItem({
@@ -470,6 +490,7 @@ function FileManagerItem({
   onDelete,
   onCopyLink,
   onPreview,
+  canDelete,
 }: FileManagerItemProps) {
   const [copied, setCopied] = useState(false);
 
@@ -494,7 +515,7 @@ function FileManagerItem({
           </span>
           <ChevronRightIcon className="h-4 w-4 text-muted-foreground" />
         </button>
-        <Button
+        {canDelete && <Button
           variant="ghost"
           size="icon"
           className="h-8 w-8 sm:h-9 sm:w-9 text-destructive opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0"
@@ -505,7 +526,7 @@ function FileManagerItem({
           aria-label={`删除目录 ${item.name}`}
         >
           <Trash2 className="h-4 w-4" />
-        </Button>
+        </Button>}
       </div>
     );
   }
@@ -557,7 +578,7 @@ function FileManagerItem({
             <Link className="h-4 w-4" />
           )}
         </Button>
-        <Button
+        {canDelete && <Button
           variant="ghost"
           size="icon"
           className="h-8 w-8 sm:h-9 sm:w-9 text-destructive"
@@ -566,7 +587,7 @@ function FileManagerItem({
           title="删除文件"
         >
           <Trash2 className="h-4 w-4" />
-        </Button>
+        </Button>}
       </div>
     </div>
   );

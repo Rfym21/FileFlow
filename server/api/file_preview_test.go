@@ -20,7 +20,7 @@ func TestFilePreviewRequiresReadPermissionAndValidFile(t *testing.T) {
 		w.Write([]byte(`<Error><Code>NoSuchKey</Code><Message>missing mock file</Message></Error>`))
 	}))
 	defer mockS3.Close()
-	account := &store.Account{Name: "private mock", Endpoint: mockS3.URL, BucketName: "bucket", AccessKeyId: "mock-access", SecretAccessKey: "mock-secret"}
+	account := &store.Account{Name: "private mock", IsActive: true, Endpoint: mockS3.URL, BucketName: "bucket", AccessKeyId: "mock-access", SecretAccessKey: "mock-secret"}
 	if err := store.CreateAccount(account); err != nil {
 		t.Fatal(err)
 	}

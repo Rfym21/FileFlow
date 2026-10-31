@@ -46,7 +46,7 @@ export default function Login() {
             <Cloud className="h-6 w-6 text-primary-foreground" />
           </div>
           <CardTitle className="text-2xl">FileFlow</CardTitle>
-          <CardDescription>Cloudflare R2 多账户管理工具</CardDescription>
+          <CardDescription>登录团队，共享和管理文件</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -60,6 +60,7 @@ export default function Login() {
               <Input
                 id="username"
                 type="text"
+                autoComplete="username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="请输入用户名"
@@ -71,6 +72,7 @@ export default function Login() {
               <Input
                 id="password"
                 type="password"
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="请输入密码"

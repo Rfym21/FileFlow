@@ -154,7 +154,10 @@ func (b *MySQLBackend) createTables() error {
 			UNIQUE KEY unique_account_file (account_id, file_key(255))
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	return createSQLTeamState(b.db, true)
 }
 
 // Load 从数据库加载全部数据
@@ -345,6 +348,9 @@ func (b *MySQLBackend) Load() (*Data, error) {
 		data.FileExpirations = append(data.FileExpirations, exp)
 	}
 
+	if err := loadSQLTeamState(b.db, data); err != nil {
+		return nil, err
+	}
 	return data, nil
 }
 
@@ -472,6 +478,9 @@ func (b *MySQLBackend) Save(data *Data) error {
 		}
 	}
 
+	if err := saveSQLTeamState(tx, data, false); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -482,4 +491,3 @@ func (b *MySQLBackend) Close() error {
 	}
 	return nil
 }
-

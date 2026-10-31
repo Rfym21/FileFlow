@@ -327,21 +327,24 @@ func (h *Handler) handleCopyMove(w http.ResponseWriter, r *http.Request, storage
 	_, err = storage.Get(ctx, dst)
 	dstExists := err == nil
 
+	release, status, err := h.confirmLocks(r, src, dst)
+	if err != nil {
+		return status, err
+	}
+	defer release()
+
 	if dstExists {
 		if overwrite == "F" {
 			return http.StatusPreconditionFailed, nil
+		}
+		if !user.CanRemove() {
+			return http.StatusForbidden, nil
 		}
 		// Remove existing destination
 		if err := storage.Remove(ctx, dst); err != nil {
 			return http.StatusInternalServerError, err
 		}
 	}
-
-	release, status, err := h.confirmLocks(r, src, dst)
-	if err != nil {
-		return status, err
-	}
-	defer release()
 
 	if r.Method == "COPY" {
 		if err := storage.Copy(ctx, src, dst); err != nil {
@@ -627,8 +630,29 @@ func (h *Handler) walkFS(ctx context.Context, storage Storage, depth int, name s
 func (h *Handler) confirmLocks(r *http.Request, src, dst string) (func(), int, error) {
 	hdr := r.Header.Get("If")
 	if hdr == "" {
-		// No lock confirmation required
-		return func() {}, 0, nil
+		// Take temporary locks so a missing If header cannot bypass another member's lock.
+		// The locks also prevent two concurrent mutations from deleting each other's targets.
+		tokens := make([]string, 0, 2)
+		release := func() {
+			for _, token := range tokens {
+				_ = h.LockSystem.Unlock(time.Now(), token)
+			}
+		}
+		for _, name := range []string{src, dst} {
+			if name == "" {
+				continue
+			}
+			token, err := h.LockSystem.Create(time.Now(), LockDetails{Root: name, Duration: infiniteTimeout})
+			if err != nil {
+				release()
+				if err == ErrLocked {
+					return nil, StatusLocked, err
+				}
+				return nil, http.StatusInternalServerError, err
+			}
+			tokens = append(tokens, token)
+		}
+		return release, 0, nil
 	}
 	ih, ok := parseIfHeader(hdr)
 	if !ok {

@@ -10,12 +10,14 @@ import (
 
 // TokenRequest 创建 Token 请求
 type TokenRequest struct {
+	UserID      string   `json:"userId"`
 	Name        string   `json:"name" binding:"required"`
 	Permissions []string `json:"permissions" binding:"required"`
 }
 
 // TokenResponse Token 响应
 type TokenResponse struct {
+	UserID      string   `json:"userId"`
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
 	Token       string   `json:"token"`
@@ -25,11 +27,16 @@ type TokenResponse struct {
 
 // GetTokens 获取所有 Token
 func GetTokens(c *gin.Context) {
+	c.Header("Cache-Control", "private, no-store")
 	tokens := store.GetTokens()
 
-	var result []TokenResponse
+	result := make([]TokenResponse, 0, len(tokens))
 	for _, t := range tokens {
+		if !canManageCredentialUser(c, t.UserID) {
+			continue
+		}
 		result = append(result, TokenResponse{
+			UserID:      t.UserID,
 			ID:          t.ID,
 			Name:        t.Name,
 			Token:       t.Token,
@@ -58,7 +65,12 @@ func CreateToken(c *gin.Context) {
 		}
 	}
 
+	user, ok := credentialMember(c, req.UserID, req.Permissions)
+	if !ok {
+		return
+	}
 	token := &store.Token{
+		UserID:      user.ID,
 		Name:        req.Name,
 		Permissions: req.Permissions,
 	}
@@ -69,7 +81,9 @@ func CreateToken(c *gin.Context) {
 	}
 
 	// 创建时返回完整的 token 值
+	c.Set("audit_target", token.ID)
 	c.JSON(http.StatusCreated, TokenResponse{
+		UserID:      token.UserID,
 		ID:          token.ID,
 		Name:        token.Name,
 		Token:       token.Token,
@@ -81,6 +95,12 @@ func CreateToken(c *gin.Context) {
 // DeleteToken 删除 Token
 func DeleteToken(c *gin.Context) {
 	id := c.Param("id")
+	for _, token := range store.GetTokens() {
+		if token.ID == id && !canManageCredentialUser(c, token.UserID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "无权管理该成员的凭证"})
+			return
+		}
+	}
 
 	if err := store.DeleteToken(id); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})

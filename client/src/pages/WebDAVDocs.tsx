@@ -22,7 +22,7 @@ export default function WebDAVDocs() {
       <div className="flex items-start gap-3 p-4 rounded-lg border bg-blue-50 dark:bg-blue-950/20 text-blue-800 dark:text-blue-200">
         <Info className="h-5 w-5 mt-0.5 shrink-0" />
         <p className="text-sm">
-          WebDAV 接口使用 HTTP Basic Auth 认证，需要在「设置 → WebDAV 凭证」页面创建专用的用户名和密码
+          WebDAV 接口使用 HTTP Basic Auth 认证。请由所有者或管理员在「设置 → WebDAV 凭证」为成员创建专用用户名和密码，连接客户端时使用该凭证。
         </p>
       </div>
 
@@ -65,10 +65,10 @@ export default function WebDAVDocs() {
         </CardHeader>
         <CardContent className="space-y-4">
           <ol className="list-decimal list-inside space-y-2 text-muted-foreground">
-            <li>进入「设置」页面，切换到「WebDAV 凭证」选项卡</li>
+            <li>所有者或管理员进入「设置」页面，切换到「WebDAV 凭证」选项卡</li>
             <li>点击「创建凭证」按钮</li>
-            <li>选择要关联的存储账户</li>
-            <li>设置权限（read/write/delete）</li>
+            <li>选择凭证所属成员和要关联的存储账户</li>
+            <li>设置权限（read/write/delete），权限不能超过所属成员的角色权限</li>
             <li>创建后可随时查看和复制用户名和密码</li>
           </ol>
         </CardContent>
@@ -230,13 +230,14 @@ await client.createDirectory('/new-folder');`}
             </div>
             <div>
               <p className="text-sm font-medium">写入权限 (write)</p>
-              <p className="text-xs text-muted-foreground">允许上传文件、创建目录、复制移动文件（PUT, MKCOL, COPY, MOVE）</p>
+              <p className="text-xs text-muted-foreground">允许上传文件、创建目录（PUT, MKCOL）；COPY 还需要 read 权限，MOVE 还需要 delete 权限。</p>
             </div>
             <div>
               <p className="text-sm font-medium">删除权限 (delete)</p>
               <p className="text-xs text-muted-foreground">允许删除文件和目录（DELETE）</p>
             </div>
           </div>
+          <p className="mt-4 text-xs text-muted-foreground">每次访问都会检查所属成员的当前状态和权限。停用成员后，其 WebDAV 凭证停止访问；降低角色权限后，凭证也会遵守新的权限限制。</p>
         </CardContent>
       </Card>
 

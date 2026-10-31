@@ -28,7 +28,7 @@ func setupExpirationAPI(t *testing.T) (*gin.Engine, string, string) {
 	t.Setenv("FILEFLOW_DATABASE_URL", databaseURL)
 	cfg := config.Get()
 	previous := *cfg
-	cfg.DataDir, cfg.DatabaseURL = dir, databaseURL
+	cfg.DataDir, cfg.DatabaseURL, cfg.AdminUser, cfg.AdminPassword = dir, databaseURL, "test-admin", "test-password"
 	t.Cleanup(func() { store.Close(); *cfg = previous })
 	if err := store.Init(); err != nil {
 		t.Fatal(err)

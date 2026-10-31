@@ -2,69 +2,54 @@ package api
 
 import (
 	"fileflow/server/middleware"
-
 	"github.com/gin-gonic/gin"
 )
 
-// SetupRouter 配置路由
 func SetupRouter(r *gin.Engine) {
-	// 公开接口
 	r.GET("/api/health", Health)
-	r.POST("/api/auth/login", Login)
-
-	// 反向代理（公开，用于代理 R2 文件）
+	r.POST("/api/auth/login", middleware.AuditMiddleware(), Login)
+	// Public R2 domains and their proxy remain explicit public-sharing endpoints.
 	r.GET("/p/:subdomain/*path", Proxy)
-
-	// 需要认证的接口
-	protected := r.Group("/api")
-	protected.Use(middleware.AuthMiddleware())
-	{
-		// 通用认证检查
-		protected.GET("/check", Check)
-
-		// 文件操作（需要相应权限）
-		protected.GET("/files", middleware.RequirePermission("read"), GetFiles)
-		protected.POST("/upload", middleware.RequirePermission("write"), Upload)
-		protected.DELETE("/file", middleware.RequirePermission("delete"), DeleteFile)
-		protected.GET("/link", middleware.RequirePermission("read"), GetLink)
-		protected.GET("/file-preview", middleware.RequirePermission("read"), GetFilePreview)
-	}
-
-	// 管理员专用接口（仅 JWT）
-	admin := r.Group("/api")
-	admin.Use(middleware.JWTOnlyMiddleware())
-	{
-		// 账户管理
-		admin.GET("/accounts", GetAccounts)
-		admin.GET("/accounts/stats", GetAccountsStats)
-		admin.GET("/accounts/:id", GetAccount)
-		admin.POST("/accounts", CreateAccount)
-		admin.PUT("/accounts/:id", UpdateAccount)
-		admin.DELETE("/accounts/:id", DeleteAccount)
-		admin.POST("/accounts/sync", SyncAccounts)
-		admin.POST("/accounts/:id/clear", ClearBucket)
-		admin.POST("/accounts/delete-old-files", DeleteOldFiles)
-
-		// Token 管理
-		admin.GET("/tokens", GetTokens)
-		admin.POST("/tokens", CreateToken)
-		admin.DELETE("/tokens/:id", DeleteToken)
-
-		// WebDAV 凭证管理
-		admin.GET("/webdav-credentials", GetWebDAVCredentials)
-		admin.POST("/webdav-credentials", CreateWebDAVCredential)
-		admin.PUT("/webdav-credentials/:id", UpdateWebDAVCredential)
-		admin.DELETE("/webdav-credentials/:id", DeleteWebDAVCredential)
-
-		// 系统设置
-		admin.GET("/settings", GetSettings)
-		admin.PUT("/settings", UpdateSettings)
-
-		// 文件到期管理
-		admin.GET("/file-expirations", GetFileExpirations)
-		admin.PATCH("/file-expirations", UpdateFileExpirations)
-		admin.PATCH("/file-expirations/:id", UpdateFileExpiration)
-		admin.POST("/file-expirations/batch-delete", BatchDeleteFileExpirations)
-		admin.DELETE("/file-expirations/:id", DeleteFileExpirationByID)
-	}
+	protected := r.Group("/api", middleware.AuditMiddleware(), middleware.AuthMiddleware())
+	protected.GET("/check", Check)
+	protected.GET("/files", middleware.RequirePermission("read"), GetFiles)
+	protected.POST("/upload", middleware.RequirePermission("write"), Upload)
+	protected.POST("/upload/init", middleware.RequirePermission("write"), InitDirectUpload)
+	protected.POST("/upload/complete", middleware.RequirePermission("write"), CompleteDirectUpload)
+	protected.POST("/files/batch-delete", middleware.RequirePermission("delete"), BatchDeleteFiles)
+	protected.DELETE("/file", middleware.RequirePermission("delete"), DeleteFile)
+	protected.GET("/link", middleware.RequirePermission("read"), GetLink)
+	protected.GET("/file-preview", middleware.RequirePermission("read"), GetFilePreview)
+	member := r.Group("/api", middleware.AuditMiddleware(), middleware.JWTOnlyMiddleware())
+	member.POST("/auth/password", ChangePassword)
+	member.POST("/auth/logout", Logout)
+	member.PATCH("/files/expirations", middleware.RequirePermission("write"), UpdateFilesExpiration)
+	member.GET("/accounts", middleware.RequirePermission("read"), GetAccounts)
+	member.GET("/accounts/stats", middleware.RequirePermission("read"), GetAccountsStats)
+	member.GET("/accounts/:id", middleware.RequirePermission("read"), GetAccount)
+	member.GET("/settings", middleware.RequirePermission("read"), GetSettings)
+	member.GET("/file-expirations", middleware.RequirePermission("read"), GetFileExpirations)
+	member.PATCH("/file-expirations", middleware.RequirePermission("write"), UpdateFileExpirations)
+	member.PATCH("/file-expirations/:id", middleware.RequirePermission("write"), UpdateFileExpiration)
+	member.POST("/file-expirations/batch-delete", middleware.RequirePermission("delete"), BatchDeleteFileExpirations)
+	member.DELETE("/file-expirations/:id", middleware.RequirePermission("delete"), DeleteFileExpirationByID)
+	admin := r.Group("/api", middleware.AuditMiddleware(), middleware.JWTOnlyMiddleware(), middleware.RequirePermission("manage"))
+	admin.GET("/audit-logs", GetAuditLogs)
+	admin.GET("/users", GetUsers)
+	admin.POST("/users", CreateUser)
+	admin.PUT("/users/:id", UpdateUser)
+	admin.POST("/accounts", CreateAccount)
+	admin.PUT("/accounts/:id", UpdateAccount)
+	admin.DELETE("/accounts/:id", DeleteAccount)
+	admin.POST("/accounts/sync", SyncAccounts)
+	admin.POST("/accounts/:id/clear", ClearBucket)
+	admin.POST("/accounts/delete-old-files", DeleteOldFiles)
+	admin.GET("/tokens", GetTokens)
+	admin.POST("/tokens", CreateToken)
+	admin.DELETE("/tokens/:id", DeleteToken)
+	admin.GET("/webdav-credentials", GetWebDAVCredentials)
+	admin.POST("/webdav-credentials", CreateWebDAVCredential)
+	admin.PUT("/webdav-credentials/:id", UpdateWebDAVCredential)
+	admin.DELETE("/webdav-credentials/:id", DeleteWebDAVCredential)
+	admin.PUT("/settings", UpdateSettings)
 }

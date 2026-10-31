@@ -1,121 +1,304 @@
-name: Publish Release
+name: Build and Release
 
 on:
-  push:
-    branches: [main]
-    paths: ['.version']
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .version
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
 
 jobs:
-  # 先构建前端，供后续任务复用
-  build-frontend:
+  prepare:
+    name: Read release version
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      project_name: ${{ steps.version.outputs.project_name }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      image: ${{ steps.version.outputs.image }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout source
+        uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - name: Validate .version and release tag
+        id: version
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('node:fs');
+            const config = new Map();
+            for (const rawLine of fs.readFileSync('.version', 'utf8').split(/\r?\n/)) {
+              const line = rawLine.trim();
+              if (!line || line.startsWith('#')) continue;
+              const match = line.match(/^([a-z_]+)\s*=\s*(.*)$/);
+              if (!match || config.has(match[1])) {
+                throw new Error('.version must contain unique key=value entries.');
+              }
+              config.set(match[1], match[2].trim());
+            }
+
+            const projectName = config.get('project_name') || '';
+            if (!/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(projectName) || projectName.length > 255) {
+              throw new Error('project_name must be a lowercase name such as file-flow.');
+            }
+
+            const version = (config.get('version') || '').replace(/^v/, '');
+            const number = '(0|[1-9][0-9]*)';
+            const identifier = '(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)';
+            const pattern = new RegExp(`^${number}\\.${number}\\.${number}(-${identifier}(\\.${identifier})*)?$`);
+
+            // Build metadata (+...) is excluded because Docker tags cannot contain +.
+            if (!pattern.test(version) || version.length > 127) {
+              throw new Error('version must be SemVer such as 1.11.3 or v1.12.0-rc.1, without build metadata.');
+            }
+
+            const tag = `v${version}`;
+            let existingRef;
+            try {
+              const response = await github.rest.git.getRef({
+                ...context.repo,
+                ref: `tags/${tag}`,
+              });
+              existingRef = response.data.object;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+
+            // A retry may replace assets, but must keep the tag on the same commit.
+            while (existingRef?.type === 'tag') {
+              const response = await github.rest.git.getTag({
+                ...context.repo,
+                tag_sha: existingRef.sha,
+              });
+              existingRef = response.data.object;
+            }
+            if (existingRef && existingRef.sha !== context.sha) {
+              throw new Error(`${tag} already points to another commit. Bump .version before publishing this commit.`);
+            }
+
+            const owner = context.repo.owner.toLowerCase();
+            core.setOutput('project_name', projectName);
+            core.setOutput('version', version);
+            core.setOutput('tag', tag);
+            core.setOutput('image', `ghcr.io/${owner}/${projectName}`);
+            core.setOutput('prerelease', String(version.includes('-')));
+
+  frontend:
+    name: Build embedded frontend
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: client/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: client
+        run: npm ci
 
       - name: Build frontend
         working-directory: client
-        run: npm ci && npm run build
+        run: npm run build
 
-      - name: Upload frontend dist
+      - name: Upload embedded frontend
         uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
-          path: client/dist
+          path: client/dist/
+          include-hidden-files: true
+          if-no-files-found: error
           retention-days: 1
 
-  # 并行构建各平台二进制文件
-  build-binaries:
-    needs: build-frontend
+  binaries:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: [prepare, frontend]
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     strategy:
+      fail-fast: false
       matrix:
-        include:
-          - goos: windows
-            goarch: amd64
-            suffix: windows-x64.exe
-          - goos: darwin
-            goarch: amd64
-            suffix: macos-amd64
-          - goos: darwin
-            goarch: arm64
-            suffix: macos-arm64
-          - goos: linux
-            goarch: amd64
-            suffix: linux-amd64
-          - goos: linux
-            goarch: arm64
-            suffix: linux-arm64
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+    env:
+      CGO_ENABLED: '0'
+      GOWORK: 'off'
+      PROJECT_NAME: ${{ needs.prepare.outputs.project_name }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout source
+        uses: actions/checkout@v5
 
-      - name: Get version
-        id: version
-        run: |
-          PROJECT_NAME=$(grep '^project_name=' .version | cut -d'=' -f2)
-          VERSION=$(grep '^version=' .version | cut -d'=' -f2)
-          echo "name=$PROJECT_NAME" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-      - uses: actions/setup-go@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
         with:
-          go-version: '1.25'
-          cache: true
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
 
-      - name: Download frontend dist
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Download embedded frontend
         uses: actions/download-artifact@v4
         with:
           name: frontend-dist
-          path: client/dist
+          path: client/dist/
 
-      - name: Build binary
+      - name: Compile binary and package release
+        shell: bash
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
         run: |
-          NAME=${{ steps.version.outputs.name }}
-          VER=${{ steps.version.outputs.version }}
-          go build -ldflags="-s -w" -o ${NAME}-${VER}-${{ matrix.suffix }} .
+          set -euo pipefail
+          package="${PROJECT_NAME}_${RELEASE_VERSION}_${GOOS}_${GOARCH}"
+          binary="fileflow"
+          if [[ "$GOOS" == "windows" ]]; then
+            binary="fileflow.exe"
+          fi
 
-      - name: Upload binary
+          mkdir -p "build/$package" dist
+          go build -trimpath -ldflags="-s -w" -o "build/$package/$binary" .
+          cp .version README.md .env.example "build/$package/"
+
+          if [[ "$GOOS" == "windows" ]]; then
+            (cd build && zip -r "../dist/$package.zip" "$package")
+          else
+            tar -C build -czf "dist/$package.tar.gz" "$package"
+          fi
+
+      - name: Upload release archive
         uses: actions/upload-artifact@v4
         with:
-          name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: ${{ steps.version.outputs.name }}-*
-          retention-days: 1
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
 
-  # 创建 Release
-  release:
-    needs: build-binaries
+  docker:
+    name: Publish GHCR image
+    needs: [prepare, binaries]
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+
+      - name: Download Linux release archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-linux-*
+          merge-multiple: true
+          path: build/docker-archives/
+
+      - name: Prepare Docker runtime files
+        shell: bash
+        env:
+          PROJECT_NAME: ${{ needs.prepare.outputs.project_name }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            package="${PROJECT_NAME}_${RELEASE_VERSION}_linux_${arch}"
+            mkdir -p "build/docker-context/$arch"
+            tar -xzf "build/docker-archives/$package.tar.gz" \
+              -C "build/docker-context/$arch" --strip-components=1
+            test -s "build/docker-context/$arch/fileflow"
+          done
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image tags and labels
+        id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ needs.prepare.outputs.image }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=${{ needs.prepare.outputs.version }}
+            type=raw,value=${{ needs.prepare.outputs.tag }}
+            type=sha,format=long
+            type=raw,value=latest,enable=${{ needs.prepare.outputs.prerelease == 'false' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./build/docker-context
+          file: ./.github/docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    name: Publish GitHub Release
+    needs: [prepare, binaries, docker]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Get version
-        id: version
-        run: |
-          VERSION=$(grep '^version=' .version | cut -d'=' -f2)
-          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Download all binaries
+      - name: Download release archives
         uses: actions/download-artifact@v4
         with:
-          pattern: binary-*
-          path: build
+          pattern: release-*
           merge-multiple: true
+          path: dist/
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+      - name: Generate SHA256 checksums
+        working-directory: dist
+        run: sha256sum *.tar.gz *.zip > checksums.txt
+
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: FileFlow ${{ needs.prepare.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          prerelease: ${{ needs.prepare.outputs.prerelease == 'true' }}
+          make_latest: ${{ needs.prepare.outputs.prerelease == 'false' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
           generate_release_notes: true
-          files: build/*
+          fail_on_unmatched_files: true
+          files: dist/*
+          body: |
+            Docker image (linux/amd64 and linux/arm64):
+
+            ```sh
+            docker pull ${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.version }}
+            ```
+
+            Download the archive for your OS (linux, darwin/macOS, windows) and architecture (amd64 or arm64).
+            Each archive includes the binary with its embedded frontend, .version, README.md, and .env.example.
+            Verify downloaded archives against checksums.txt with `sha256sum --ignore-missing -c checksums.txt`.

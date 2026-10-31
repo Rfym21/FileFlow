@@ -69,7 +69,8 @@ type UploadResult struct {
 // getS3Client 获取账户的 S3 客户端
 func getS3Client(acc *store.Account) *s3.Client {
 	cfg := aws.Config{
-		Region: "auto",
+		Region:     "auto",
+		HTTPClient: NewMeteredR2HTTPClient(acc.ID),
 		Credentials: credentials.NewStaticCredentialsProvider(
 			acc.AccessKeyId,
 			acc.SecretAccessKey,
@@ -79,6 +80,7 @@ func getS3Client(acc *store.Account) *s3.Client {
 
 	return s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(acc.Endpoint)
+		o.RetryMaxAttempts = 1
 	})
 }
 
@@ -223,6 +225,9 @@ func doUpload(ctx context.Context, acc *store.Account, key string, body []byte, 
 
 // ListFiles 列出账户指定前缀下的文件（懒加载+分页）
 func ListFiles(ctx context.Context, acc *store.Account, prefix string, cursor string, limit int32) (*ListFilesResult, error) {
+	if IsPendingUploadKey(acc.ID, prefix) {
+		return nil, store.ErrUploadSessionConflict
+	}
 	client := getS3Client(acc)
 
 	if limit <= 0 {
@@ -263,6 +268,9 @@ func ListFiles(ctx context.Context, acc *store.Account, prefix string, cursor st
 	// 添加文件（Contents）
 	for _, obj := range output.Contents {
 		key := aws.ToString(obj.Key)
+		if IsPendingUploadKey(acc.ID, key) {
+			continue
+		}
 		// 跳过目录本身
 		if key == prefix || strings.HasSuffix(key, "/") {
 			continue
@@ -358,6 +366,9 @@ func ListAccountsFilesByIDs(ctx context.Context, ids []string, prefix string, cu
 
 // DeleteFile 删除指定账户的文件或目录
 func DeleteFile(ctx context.Context, accountID, key string) error {
+	if IsPendingUploadKey(accountID, key) {
+		return store.ErrUploadSessionConflict
+	}
 	acc, err := store.GetAccountByID(accountID)
 	if err != nil {
 		return err
@@ -367,7 +378,7 @@ func DeleteFile(ctx context.Context, accountID, key string) error {
 
 	// 检查是否为目录（以 / 结尾）
 	if strings.HasSuffix(key, "/") {
-		return deleteDirectory(ctx, client, acc.BucketName, key)
+		return deleteDirectory(ctx, client, acc.BucketName, key, accountID)
 	}
 
 	// 删除单个文件
@@ -385,7 +396,7 @@ func DeleteFile(ctx context.Context, accountID, key string) error {
 }
 
 // deleteDirectory 递归删除目录下所有文件
-func deleteDirectory(ctx context.Context, client *s3.Client, bucket, prefix string) error {
+func deleteDirectory(ctx context.Context, client *s3.Client, bucket, prefix, accountID string) error {
 	input := &s3.ListObjectsV2Input{
 		Bucket: aws.String(bucket),
 		Prefix: aws.String(prefix),
@@ -406,9 +417,15 @@ func deleteDirectory(ctx context.Context, client *s3.Client, bucket, prefix stri
 		// 构建删除列表（每次最多 1000 个）
 		var objects []types.ObjectIdentifier
 		for _, obj := range page.Contents {
+			if IsPendingUploadKey(accountID, aws.ToString(obj.Key)) {
+				continue
+			}
 			objects = append(objects, types.ObjectIdentifier{
 				Key: obj.Key,
 			})
+		}
+		if len(objects) == 0 {
+			continue
 		}
 
 		// 批量删除
@@ -433,8 +450,14 @@ func deleteDirectory(ctx context.Context, client *s3.Client, bucket, prefix stri
 
 // GetFileLink 获取文件直链
 func GetFileLink(accountID, key string) (string, error) {
+	if IsPendingUploadKey(accountID, key) {
+		return "", store.ErrUploadSessionConflict
+	}
 	acc, err := store.GetAccountByID(accountID)
 	if err != nil {
+		return "", err
+	}
+	if err := ChargeAccountOperations(accountID, 0, 1); err != nil {
 		return "", err
 	}
 
@@ -481,7 +504,7 @@ func ClearBucket(ctx context.Context, accountID string) error {
 	client := getS3Client(acc)
 
 	// 复用 deleteDirectory，传入空前缀删除所有内容
-	return deleteDirectory(ctx, client, acc.BucketName, "")
+	return deleteDirectory(ctx, client, acc.BucketName, "", accountID)
 }
 
 // DeleteOldFilesResult 删除旧文件结果
@@ -526,6 +549,9 @@ func DeleteOldFiles(ctx context.Context, accountID string, before time.Time) (*D
 		// 筛选早于指定时间的文件
 		var objects []types.ObjectIdentifier
 		for _, obj := range page.Contents {
+			if IsPendingUploadKey(accountID, aws.ToString(obj.Key)) {
+				continue
+			}
 			if obj.LastModified != nil && obj.LastModified.Before(before) {
 				objects = append(objects, types.ObjectIdentifier{
 					Key: obj.Key,
@@ -611,7 +637,9 @@ func GetAccountStorageSize(ctx context.Context, acc *store.Account) (int64, erro
 		}
 
 		for _, obj := range page.Contents {
-			totalSize += aws.ToInt64(obj.Size)
+			if !IsPendingUploadKey(acc.ID, aws.ToString(obj.Key)) {
+				totalSize += aws.ToInt64(obj.Size)
+			}
 		}
 	}
 

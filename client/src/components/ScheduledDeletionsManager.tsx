@@ -38,12 +38,14 @@ import {
   type FileExpiration,
 } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
+import { useAuth } from "@/hooks/useAuth";
 import {
   Trash2,
   RefreshCw,
   Clock,
   CalendarClock,
   AlertTriangle,
+  Search,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -89,6 +91,8 @@ function toLocalDateTime(value: string): string {
 
 interface EditTarget {
   ids: string[];
+  records: FileExpiration[];
+  hiddenCount: number;
   fileKey?: string;
   originalExpiresAt?: string;
   originalLocalInput?: string;
@@ -125,6 +129,8 @@ interface DeleteFailure {
 }
 
 export default function ScheduledDeletionsManager() {
+  const { can } = useAuth();
+  const canModify = can("write") || can("delete");
   const [expirations, setExpirations] = useState<FileExpiration[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -132,6 +138,7 @@ export default function ScheduledDeletionsManager() {
   const mutationInFlight = useRef(false);
   const latestLoadRequest = useRef(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [expiresAtInput, setExpiresAtInput] = useState("");
@@ -140,19 +147,47 @@ export default function ScheduledDeletionsManager() {
     null,
   );
   const [deleteError, setDeleteError] = useState("");
+  const [deleteHiddenCount, setDeleteHiddenCount] = useState(0);
   const [deleteFailures, setDeleteFailures] = useState<DeleteFailure[]>([]);
   const busy = loading || mutation !== null;
   const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const totalPages = Math.max(1, Math.ceil(expirations.length / PAGE_SIZE));
+  const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
+  const filteredExpirations = useMemo(
+    () =>
+      normalizedQuery
+        ? expirations.filter((exp) =>
+            [exp.fileKey, exp.accountName || "", exp.accountId].some((value) =>
+              value.toLocaleLowerCase().includes(normalizedQuery),
+            ),
+          )
+        : expirations,
+    [expirations, normalizedQuery],
+  );
+  const filteredIds = useMemo(
+    () => new Set(filteredExpirations.map((exp) => exp.id)),
+    [filteredExpirations],
+  );
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredExpirations.length / PAGE_SIZE),
+  );
+  const visiblePage = Math.min(currentPage, totalPages);
   const paginatedExpirations = useMemo(
     () =>
-      expirations.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
-    [expirations, currentPage],
+      filteredExpirations.slice(
+        (visiblePage - 1) * PAGE_SIZE,
+        visiblePage * PAGE_SIZE,
+      ),
+    [filteredExpirations, visiblePage],
   );
   const selectedExpirations = useMemo(
     () => expirations.filter((exp) => selectedIds.has(exp.id)),
     [expirations, selectedIds],
   );
+  const visibleSelectedCount = selectedExpirations.filter((exp) =>
+    filteredIds.has(exp.id),
+  ).length;
+  const hiddenSelectedCount = selectedExpirations.length - visibleSelectedCount;
   const pageSelectedCount = paginatedExpirations.filter((exp) =>
     selectedIds.has(exp.id),
   ).length;
@@ -176,9 +211,6 @@ export default function ScheduledDeletionsManager() {
       );
       setDeleteFailures((previous) =>
         previous.filter((failure) => validIds.has(failure.id)),
-      );
-      setCurrentPage((previous) =>
-        Math.min(previous, Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))),
       );
       setLoadError("");
     } catch (err) {
@@ -212,8 +244,21 @@ export default function ScheduledDeletionsManager() {
     });
   };
 
+  const changeSearch = (query: string) => {
+    setSearchQuery(query);
+    setCurrentPage(1);
+  };
+
+  const selectSearchResults = () => {
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      filteredExpirations.forEach((exp) => next.add(exp.id));
+      return next;
+    });
+  };
+
   const openEdit = (records: FileExpiration[]) => {
-    if (busy || records.length === 0) return;
+    if (!can("write") || busy || records.length === 0) return;
     const originalExpiresAt =
       records.length === 1 ? records[0].expiresAt : undefined;
     const localInput = toLocalDateTime(
@@ -221,6 +266,8 @@ export default function ScheduledDeletionsManager() {
     );
     setEditTarget({
       ids: records.map((exp) => exp.id),
+      records,
+      hiddenCount: records.filter((exp) => !filteredIds.has(exp.id)).length,
       fileKey: records.length === 1 ? records[0].fileKey : undefined,
       originalExpiresAt,
       originalLocalInput: originalExpiresAt ? localInput : undefined,
@@ -231,6 +278,7 @@ export default function ScheduledDeletionsManager() {
 
   const saveExpiration = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!can("write")) return;
     if (!editTarget || mutationInFlight.current) return;
     const date = resolveEditedExpiration(expiresAtInput, editTarget);
     if (!expiresAtInput || Number.isNaN(date.getTime())) {
@@ -272,13 +320,15 @@ export default function ScheduledDeletionsManager() {
   };
 
   const openDelete = (records: FileExpiration[]) => {
+    if (!can("delete")) return;
     if (busy || records.length === 0) return;
     setDeleteTargets(records);
+    setDeleteHiddenCount(records.filter((exp) => !filteredIds.has(exp.id)).length);
     setDeleteError("");
   };
 
   const confirmDelete = async () => {
-    if (!deleteTargets || mutationInFlight.current) return;
+    if (!can("delete") || !deleteTargets || mutationInFlight.current) return;
     mutationInFlight.current = true;
     setMutation("delete");
     setDeleteError("");
@@ -303,12 +353,6 @@ export default function ScheduledDeletionsManager() {
         }));
       const remaining = expirations.filter((exp) => !successfulIds.has(exp.id));
       setExpirations(remaining);
-      setCurrentPage((previous) =>
-        Math.min(
-          previous,
-          Math.max(1, Math.ceil(remaining.length / PAGE_SIZE)),
-        ),
-      );
       setSelectedIds((previous) => {
         const next = new Set(
           [...previous].filter((id) => !successfulIds.has(id)),
@@ -363,6 +407,46 @@ export default function ScheduledDeletionsManager() {
           {loading ? "加载中" : "刷新"}
         </Button>
       </div>
+      <div className="space-y-2">
+        <Label htmlFor="scheduled-search">搜索计划删除文件</Label>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full sm:max-w-md">
+            <Search
+              className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <Input
+              id="scheduled-search"
+              type="search"
+              value={searchQuery}
+              onChange={(event) => changeSearch(event.target.value)}
+              placeholder="搜索文件路径或账户名称"
+              className="pl-9"
+              disabled={mutation !== null}
+              aria-describedby="scheduled-search-results"
+            />
+          </div>
+          {searchQuery && (
+            <Button
+              variant="outline"
+              onClick={() => changeSearch("")}
+              disabled={mutation !== null}
+            >
+              <X className="mr-2 h-4 w-4" aria-hidden="true" />
+              清空搜索
+            </Button>
+          )}
+          <p
+            id="scheduled-search-results"
+            className="text-sm text-muted-foreground"
+            aria-live="polite"
+          >
+            {normalizedQuery
+              ? `找到 ${filteredExpirations.length} / ${expirations.length} 个文件`
+              : `显示全部 ${expirations.length} 个文件`}
+          </p>
+        </div>
+      </div>
       {loadError && (
         <div
           role="alert"
@@ -403,62 +487,66 @@ export default function ScheduledDeletionsManager() {
           </ul>
         </div>
       )}
-      {expirations.length > 0 && (
+      {canModify && expirations.length > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className="mr-2 text-sm font-medium" aria-live="polite">
-              已选 {selectedIds.size} / {expirations.length} 个文件
+              已选总计 {selectedExpirations.length} 个，当前搜索结果中{" "}
+              {visibleSelectedCount} 个
             </span>
             <Button
               variant="outline"
               size="sm"
               onClick={() => selectPage(true)}
-              disabled={busy}
+              disabled={busy || paginatedExpirations.length === 0}
             >
-              选择当前页
+              选择当前页（{paginatedExpirations.length}）
             </Button>
             <Button
               variant="outline"
               size="sm"
-              onClick={() =>
-                setSelectedIds(new Set(expirations.map((exp) => exp.id)))
-              }
-              disabled={busy}
+              onClick={selectSearchResults}
+              disabled={busy || filteredExpirations.length === 0}
             >
-              选择全部记录
+              选择全部搜索结果（{filteredExpirations.length}）
             </Button>
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setSelectedIds(new Set())}
-              disabled={busy || selectedIds.size === 0}
+              disabled={busy || selectedExpirations.length === 0}
             >
               清空选择
             </Button>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button
+            {can("write") && <Button
               variant="outline"
               size="sm"
               onClick={() => openEdit(selectedExpirations)}
               disabled={busy || selectedIds.size === 0}
             >
               <CalendarClock className="mr-2 h-4 w-4" aria-hidden="true" />
-              批量修改到期时间
-            </Button>
-            <Button
+              批量修改到期时间（全部已选 {selectedExpirations.length}）
+            </Button>}
+            {can("delete") && <Button
               variant="destructive"
               size="sm"
               onClick={() => openDelete(selectedExpirations)}
               disabled={busy || selectedIds.size === 0}
             >
               <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />
-              批量删除
-            </Button>
+              批量删除全部已选（{selectedExpirations.length}）
+            </Button>}
           </div>
           <p className="w-full text-xs text-muted-foreground">
-            选择会跨页保留；“选择全部记录”包含所有分页。
+            选择会跨页、跨搜索保留；“选择全部搜索结果”仅新增当前搜索匹配的文件。批量操作会处理全部已选文件。
           </p>
+          {hiddenSelectedCount > 0 && (
+            <p className="w-full text-sm text-yellow-600" role="status">
+              {hiddenSelectedCount} 个已选文件不在当前搜索结果中，批量修改或删除也会包含这些文件。
+            </p>
+          )}
         </div>
       )}
       {loading && expirations.length === 0 ? (
@@ -477,6 +565,14 @@ export default function ScheduledDeletionsManager() {
             <p className="text-sm">上传时设置有效期的文件会出现在这里</p>
           </div>
         )
+      ) : filteredExpirations.length === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-3 py-12 text-muted-foreground">
+          <Search className="h-10 w-10 opacity-50" aria-hidden="true" />
+          <p>没有匹配的计划删除文件</p>
+          <Button variant="outline" onClick={() => changeSearch("")} disabled={mutation !== null}>
+            清空搜索
+          </Button>
+        </div>
       ) : (
         <>
           <div className="overflow-x-auto rounded-lg border">
@@ -486,7 +582,7 @@ export default function ScheduledDeletionsManager() {
               </caption>
               <thead className="border-b bg-muted/50 text-left text-muted-foreground">
                 <tr>
-                  <th scope="col" className="w-12 px-4 py-3">
+                  {canModify && <th scope="col" className="w-12 px-4 py-3">
                     <Checkbox
                       aria-label="选择或取消选择当前页所有文件"
                       checked={pageChecked}
@@ -495,7 +591,7 @@ export default function ScheduledDeletionsManager() {
                       }
                       disabled={busy}
                     />
-                  </th>
+                  </th>}
                   <th scope="col" className="min-w-64 px-4 py-3 font-medium">
                     文件路径
                   </th>
@@ -511,9 +607,7 @@ export default function ScheduledDeletionsManager() {
                   <th scope="col" className="px-4 py-3 font-medium">
                     剩余状态
                   </th>
-                  <th scope="col" className="px-4 py-3 font-medium">
-                    操作
-                  </th>
+                  {canModify && <th scope="col" className="px-4 py-3 font-medium">操作</th>}
                 </tr>
               </thead>
               <tbody>
@@ -524,7 +618,7 @@ export default function ScheduledDeletionsManager() {
                       key={exp.id}
                       className={`border-b last:border-0 ${selectedIds.has(exp.id) ? "bg-primary/5" : "hover:bg-muted/30"}`}
                     >
-                      <td className="px-4 py-4">
+                      {canModify && <td className="px-4 py-4">
                         <Checkbox
                           aria-label={`选择文件 ${exp.fileKey}`}
                           checked={selectedIds.has(exp.id)}
@@ -538,7 +632,7 @@ export default function ScheduledDeletionsManager() {
                             })
                           }
                         />
-                      </td>
+                      </td>}
                       <td className="max-w-sm break-all px-4 py-4 font-medium">
                         {exp.fileKey}
                       </td>
@@ -569,9 +663,9 @@ export default function ScheduledDeletionsManager() {
                           {status.text}
                         </span>
                       </td>
-                      <td className="px-4 py-4">
+                      {canModify && <td className="px-4 py-4">
                         <div className="flex items-center gap-1">
-                          <Button
+                          {can("write") && <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => openEdit([exp])}
@@ -583,8 +677,8 @@ export default function ScheduledDeletionsManager() {
                               aria-hidden="true"
                             />
                             修改时间
-                          </Button>
-                          <Button
+                          </Button>}
+                          {can("delete") && <Button
                             variant="ghost"
                             size="icon"
                             className="text-destructive hover:text-destructive"
@@ -593,9 +687,9 @@ export default function ScheduledDeletionsManager() {
                             aria-label={`永久删除文件 ${exp.fileKey}`}
                           >
                             <Trash2 className="h-4 w-4" aria-hidden="true" />
-                          </Button>
+                          </Button>}
                         </div>
-                      </td>
+                      </td>}
                     </tr>
                   );
                 })}
@@ -608,10 +702,10 @@ export default function ScheduledDeletionsManager() {
             aria-label="计划删除列表分页"
           >
             <Pagination
-              currentPage={currentPage}
+              currentPage={visiblePage}
               totalPages={totalPages}
               onPageChange={setCurrentPage}
-              totalItems={expirations.length}
+              totalItems={filteredExpirations.length}
               pageSize={PAGE_SIZE}
             />
           </fieldset>
@@ -619,7 +713,7 @@ export default function ScheduledDeletionsManager() {
       )}
 
       <Dialog
-        open={editTarget !== null}
+        open={can("write") && editTarget !== null}
         onOpenChange={(open) => {
           if (!open && !mutationInFlight.current) setEditTarget(null);
         }}
@@ -635,12 +729,26 @@ export default function ScheduledDeletionsManager() {
               <DialogDescription>
                 为 {editTarget?.ids.length || 0}{" "}
                 个文件设置新的到期时间，到期后将自动删除。
+                {editTarget && editTarget.hiddenCount > 0 &&
+                  ` 其中 ${editTarget.hiddenCount} 个文件不在当前搜索结果中，也会一并修改。`}
               </DialogDescription>
             </DialogHeader>
             {editTarget?.fileKey && (
               <p className="break-all rounded-md bg-muted p-3 text-sm">
                 {editTarget.fileKey}
               </p>
+            )}
+            {editTarget && editTarget.records.length > 1 && (
+              <ul className="max-h-40 space-y-1 overflow-y-auto rounded-md bg-muted p-3 text-sm">
+                {editTarget.records.map((exp) => (
+                  <li key={exp.id} className="break-all">
+                    {exp.fileKey}
+                    <span className="ml-2 text-muted-foreground">
+                      （{exp.accountName || exp.accountId}）
+                    </span>
+                  </li>
+                ))}
+              </ul>
             )}
             <div className="space-y-2">
               <Label htmlFor="scheduled-expires-at">新的到期时间</Label>
@@ -696,7 +804,7 @@ export default function ScheduledDeletionsManager() {
         </DialogContent>
       </Dialog>
       <AlertDialog
-        open={deleteTargets !== null}
+        open={can("delete") && deleteTargets !== null}
         onOpenChange={(open) => {
           if (!open && !mutationInFlight.current) setDeleteTargets(null);
         }}
@@ -709,12 +817,17 @@ export default function ScheduledDeletionsManager() {
             <AlertDialogDescription>
               将立即从存储中永久删除这 {deleteTargets?.length || 0}{" "}
               个文件，并移除对应的计划删除记录。此操作无法撤销。
+              {deleteHiddenCount > 0 &&
+                ` 其中 ${deleteHiddenCount} 个文件不在当前搜索结果中，也会一并删除。`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <ul className="max-h-48 space-y-1 overflow-y-auto rounded-md bg-muted p-3 text-sm">
             {deleteTargets?.map((exp) => (
               <li key={exp.id} className="break-all">
                 {exp.fileKey}
+                <span className="ml-2 text-muted-foreground">
+                  （{exp.accountName || exp.accountId}）
+                </span>
               </li>
             ))}
           </ul>

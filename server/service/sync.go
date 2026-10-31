@@ -48,18 +48,18 @@ type graphQLError struct {
 
 // Class A 操作类型列表（写入操作）
 var classAOperations = map[string]bool{
-	"ListBuckets":         true,
-	"PutBucket":           true,
-	"ListObjects":         true,
-	"PutObject":           true,
-	"CopyObject":          true,
-	"CompleteMultipart":   true,
-	"CreateMultipart":     true,
-	"UploadPart":          true,
-	"UploadPartCopy":      true,
-	"PutBucketEncryption": true,
-	"PutBucketCors":       true,
-	"PutBucketLifecycle":  true,
+	"ListBuckets":          true,
+	"PutBucket":            true,
+	"ListObjects":          true,
+	"PutObject":            true,
+	"CopyObject":           true,
+	"CompleteMultipart":    true,
+	"CreateMultipart":      true,
+	"UploadPart":           true,
+	"UploadPartCopy":       true,
+	"PutBucketEncryption":  true,
+	"PutBucketCors":        true,
+	"PutBucketLifecycle":   true,
 	"ListMultipartUploads": true,
 }
 
@@ -86,7 +86,7 @@ func SyncAccountUsage(ctx context.Context, acc *store.Account) error {
 		ClassBOps: classBOps,
 	}
 
-	if err := store.UpdateAccountUsage(acc.ID, usage); err != nil {
+	if err := store.UpdateAccountUsageSnapshot(acc.ID, usage, acc.UsageRevision); err != nil {
 		return fmt.Errorf("更新使用量失败: %w", err)
 	}
 

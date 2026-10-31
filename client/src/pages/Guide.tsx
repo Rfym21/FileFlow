@@ -73,7 +73,7 @@ export default function Guide() {
       <div>
         <h1 className="text-3xl font-bold">参数获取指南</h1>
         <p className="text-muted-foreground mt-2">
-          按照以下步骤从 Cloudflare 控制台获取 R2 账户所需的配置参数
+          所有者或管理员可按以下步骤配置团队使用的 R2 存储账户。普通成员使用共享文件，无需配置 Cloudflare 密钥。
         </p>
         <p className="text-xs text-muted-foreground mt-1">
           点击图片可放大查看

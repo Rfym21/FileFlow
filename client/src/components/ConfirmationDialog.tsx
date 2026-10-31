@@ -18,6 +18,7 @@ interface ConfirmationDialogProps {
   description: string;
   confirmLabel?: string;
   busy?: boolean;
+  destructive?: boolean;
   error?: string;
   onConfirm: () => void | Promise<void>;
   children?: ReactNode;
@@ -30,6 +31,7 @@ export default function ConfirmationDialog({
   description,
   confirmLabel = "确认删除",
   busy = false,
+  destructive = true,
   error,
   onConfirm,
   children,
@@ -47,7 +49,7 @@ export default function ConfirmationDialog({
           <AlertDialogCancel disabled={busy}>取消</AlertDialogCancel>
           <AlertDialogAction
             disabled={busy}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            className={destructive ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : undefined}
             onClick={(event) => { event.preventDefault(); if (!busy) void onConfirm(); }}
           >
             {busy && <RefreshCw className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}

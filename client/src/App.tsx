@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth } from "@/hooks/useAuth";
+import { AuthProvider } from "@/components/AuthProvider";
+import { useAuth } from "@/hooks/useAuth";
 import { Toaster } from "@/components/ui/sonner";
 import Layout from "@/components/Layout";
 import Login from "@/pages/Login";
@@ -12,6 +13,7 @@ import ProxyGuide from "@/pages/ProxyGuide";
 import ApiDocs from "@/pages/ApiDocs";
 import WebDAVDocs from "@/pages/WebDAVDocs";
 import ScheduledDeletions from "@/pages/ScheduledDeletions";
+import TeamMembers from "@/pages/TeamMembers";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth();
@@ -49,7 +51,8 @@ function App() {
             <Route path="files" element={<Files />} />
             <Route path="files/:accountId" element={<AccountFilesDetail />} />
             <Route path="scheduled-deletions" element={<ScheduledDeletions />} />
-            <Route path="settings" element={<Settings />} />
+            <Route path="settings" element={<ManageRoute><Settings /></ManageRoute>} />
+            <Route path="team" element={<ManageRoute><TeamMembers /></ManageRoute>} />
             <Route path="guide" element={<Guide />} />
             <Route path="proxy-guide" element={<ProxyGuide />} />
             <Route path="api-docs" element={<ApiDocs />} />
@@ -63,3 +66,8 @@ function App() {
 }
 
 export default App;
+
+function ManageRoute({ children }: { children: React.ReactNode }) {
+  const { can } = useAuth();
+  return can("manage") ? <>{children}</> : <Navigate to="/files" replace />;
+}

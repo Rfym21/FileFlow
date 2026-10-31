@@ -10,6 +10,7 @@ import (
 
 // WebDAVCredentialRequest 创建 WebDAV 凭证请求
 type WebDAVCredentialRequest struct {
+	UserID      string   `json:"userId"`
 	AccountID   string   `json:"accountId" binding:"required"`
 	Description string   `json:"description"`
 	Permissions []string `json:"permissions"`
@@ -28,8 +29,15 @@ type WebDAVCredentialUpdateRequest struct {
  * 获取所有 WebDAV 凭证
  */
 func GetWebDAVCredentials(c *gin.Context) {
+	c.Header("Cache-Control", "private, no-store")
 	credentials := store.GetWebDAVCredentials()
-	c.JSON(http.StatusOK, gin.H{"credentials": credentials})
+	visible := make([]store.WebDAVCredential, 0, len(credentials))
+	for _, credential := range credentials {
+		if canManageCredentialUser(c, credential.UserID) {
+			visible = append(visible, credential)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"credentials": visible})
 }
 
 /**
@@ -63,7 +71,12 @@ func CreateWebDAVCredential(c *gin.Context) {
 		}
 	}
 
+	user, ok := credentialMember(c, req.UserID, req.Permissions)
+	if !ok {
+		return
+	}
 	cred := &store.WebDAVCredential{
+		UserID:      user.ID,
 		AccountID:   req.AccountID,
 		Description: req.Description,
 		Permissions: req.Permissions,
@@ -76,6 +89,7 @@ func CreateWebDAVCredential(c *gin.Context) {
 		return
 	}
 
+	c.Set("audit_target", cred.ID)
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "创建成功",
 		"credential": cred,
@@ -103,6 +117,20 @@ func UpdateWebDAVCredential(c *gin.Context) {
 		}
 	}
 
+	cred, err := store.GetWebDAVCredentialByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "WebDAV 凭证不存在"})
+		return
+	}
+	if !canManageCredentialUser(c, cred.UserID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "无权管理该成员的凭证"})
+		return
+	}
+	if req.IsActive {
+		if _, ok := credentialMember(c, cred.UserID, req.Permissions); !ok {
+			return
+		}
+	}
 	updates := &store.WebDAVCredential{
 		Description: req.Description,
 		Permissions: req.Permissions,
@@ -122,6 +150,10 @@ func UpdateWebDAVCredential(c *gin.Context) {
  */
 func DeleteWebDAVCredential(c *gin.Context) {
 	id := c.Param("id")
+	if credential, err := store.GetWebDAVCredentialByID(id); err == nil && !canManageCredentialUser(c, credential.UserID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "无权管理该成员的凭证"})
+		return
+	}
 
 	if err := store.DeleteWebDAVCredential(id); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

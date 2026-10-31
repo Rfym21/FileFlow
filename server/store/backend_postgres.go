@@ -128,7 +128,10 @@ func (b *PostgresBackend) createTables() error {
 			UNIQUE(account_id, file_key)
 		)
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	return createSQLTeamState(b.db, false)
 }
 
 // Load 从数据库加载全部数据
@@ -319,6 +322,9 @@ func (b *PostgresBackend) Load() (*Data, error) {
 		data.FileExpirations = append(data.FileExpirations, exp)
 	}
 
+	if err := loadSQLTeamState(b.db, data); err != nil {
+		return nil, err
+	}
 	return data, nil
 }
 
@@ -458,6 +464,9 @@ func (b *PostgresBackend) Save(data *Data) error {
 		}
 	}
 
+	if err := saveSQLTeamState(tx, data, true); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -468,4 +477,3 @@ func (b *PostgresBackend) Close() error {
 	}
 	return nil
 }
-

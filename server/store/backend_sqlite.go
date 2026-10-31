@@ -131,7 +131,10 @@ func (b *SQLiteBackend) createTables() error {
 			UNIQUE(account_id, file_key)
 		)
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	return createSQLTeamState(b.db, false)
 }
 
 // Load 从数据库加载全部数据
@@ -330,6 +333,9 @@ func (b *SQLiteBackend) Load() (*Data, error) {
 		data.FileExpirations = append(data.FileExpirations, exp)
 	}
 
+	if err := loadSQLTeamState(b.db, data); err != nil {
+		return nil, err
+	}
 	return data, nil
 }
 
@@ -478,6 +484,9 @@ func (b *SQLiteBackend) Save(data *Data) error {
 		}
 	}
 
+	if err := saveSQLTeamState(tx, data, false); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -488,4 +497,3 @@ func (b *SQLiteBackend) Close() error {
 	}
 	return nil
 }
-

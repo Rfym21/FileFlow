@@ -14,6 +14,7 @@ const (
 	redisSettingsKey          = "fileflow:settings"
 	redisWebDAVCredentialsKey = "fileflow:webdav_credentials"
 	redisFileExpirationsKey   = "fileflow:file_expirations"
+	redisTeamStateKey         = "fileflow:team_state"
 )
 
 // RedisBackend Redis 数据库后端
@@ -142,18 +143,33 @@ func (b *RedisBackend) Load() (*Data, error) {
 		data.FileExpirations = append(data.FileExpirations, exp)
 	}
 
+	encodedTeam, err := b.client.Get(b.ctx, redisTeamStateKey).Result()
+	if err != nil && err != redis.Nil {
+		return nil, fmt.Errorf("读取团队信息失败: %w", err)
+	}
+	if err == nil {
+		if err := applyTeamState(data, encodedTeam); err != nil {
+			return nil, err
+		}
+	}
 	return data, nil
 }
 
 // Save 保存全部数据到 Redis
 func (b *RedisBackend) Save(data *Data) error {
-	pipe := b.client.Pipeline()
+	encodedTeam, err := marshalTeamState(data)
+	if err != nil {
+		return fmt.Errorf("保存团队信息失败: %w", err)
+	}
+	pipe := b.client.TxPipeline()
+	pipe.Set(b.ctx, redisTeamStateKey, encodedTeam, 0)
 
 	// 删除旧数据
 	pipe.Del(b.ctx, redisAccountsKey)
 	pipe.Del(b.ctx, redisTokensKey)
 	pipe.Del(b.ctx, redisWebDAVCredentialsKey)
 	pipe.Del(b.ctx, redisFileExpirationsKey)
+	pipe.Del(b.ctx, redisSettingsKey)
 
 	// 保存 accounts
 	if len(data.Accounts) > 0 {
@@ -218,7 +234,7 @@ func (b *RedisBackend) Save(data *Data) error {
 		pipe.HSet(b.ctx, redisFileExpirationsKey, fileExpMap)
 	}
 
-	_, err := pipe.Exec(b.ctx)
+	_, err = pipe.Exec(b.ctx)
 	if err != nil {
 		return fmt.Errorf("保存到 Redis 失败: %w", err)
 	}
