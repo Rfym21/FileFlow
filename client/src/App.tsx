@@ -6,7 +6,6 @@ import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import Files from "@/pages/Files";
 import AccountFilesDetail from "@/pages/AccountFilesDetail";
-import ImgBBFiles from "@/pages/ImgBBFiles";
 import Settings from "@/pages/Settings";
 import Guide from "@/pages/Guide";
 import ProxyGuide from "@/pages/ProxyGuide";
@@ -48,7 +47,6 @@ function App() {
           >
             <Route index element={<Dashboard />} />
             <Route path="files" element={<Files />} />
-            <Route path="files/imgbb" element={<ImgBBFiles />} />
             <Route path="files/:accountId" element={<AccountFilesDetail />} />
             <Route path="scheduled-deletions" element={<ScheduledDeletions />} />
             <Route path="settings" element={<Settings />} />

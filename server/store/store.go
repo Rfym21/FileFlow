@@ -2,10 +2,13 @@ package store
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
+	"time"
 
 	"fileflow/server/config"
 
@@ -16,6 +19,9 @@ var (
 	data     *Data
 	dataLock sync.RWMutex
 	backend  Backend
+
+	ErrFileExpirationNotFound = errors.New("到期记录不存在")
+	ErrInvalidFileExpiration  = errors.New("到期记录参数无效")
 )
 
 // Init 初始化存储
@@ -381,12 +387,6 @@ func GetSettings() Settings {
 	if settings.SyncInterval <= 0 {
 		settings.SyncInterval = 5
 	}
-	if settings.DefaultExpirationDays <= 0 {
-		settings.DefaultExpirationDays = 30
-	}
-	if settings.ExpirationCheckMinutes <= 0 {
-		settings.ExpirationCheckMinutes = 720
-	}
 	return settings
 }
 
@@ -430,14 +430,76 @@ func GetExpiredFiles() []FileExpiration {
 	dataLock.RLock()
 	defer dataLock.RUnlock()
 
-	now := NowString()
+	now := time.Now()
 	var result []FileExpiration
 	for _, exp := range data.FileExpirations {
-		if exp.ExpiresAt <= now {
+		expiresAt, err := time.Parse(time.RFC3339, exp.ExpiresAt)
+		if err == nil && !expiresAt.After(now) {
 			result = append(result, exp)
 		}
 	}
 	return result
+}
+
+// GetFileExpirationByID 返回到期记录的副本。
+func GetFileExpirationByID(id string) (*FileExpiration, error) {
+	dataLock.RLock()
+	defer dataLock.RUnlock()
+
+	for _, exp := range data.FileExpirations {
+		if exp.ID == id {
+			result := exp
+			return &result, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: %s", ErrFileExpirationNotFound, id)
+}
+
+// UpdateFileExpirations 原子修改指定记录的到期时间，保存失败时恢复内存。
+func UpdateFileExpirations(ids []string, expiresAt string) (int, error) {
+	parsed, err := time.Parse(time.RFC3339, expiresAt)
+	if err != nil || !parsed.After(time.Now()) {
+		return 0, fmt.Errorf("%w: 到期时间必须是未来的有效时间", ErrInvalidFileExpiration)
+	}
+	if len(ids) == 0 {
+		return 0, fmt.Errorf("%w: 请选择到期记录", ErrInvalidFileExpiration)
+	}
+	wanted := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return 0, fmt.Errorf("%w: 记录 ID 不能为空", ErrInvalidFileExpiration)
+		}
+		wanted[id] = struct{}{}
+	}
+
+	dataLock.Lock()
+	defer dataLock.Unlock()
+
+	indices := make([]int, 0, len(wanted))
+	for i, exp := range data.FileExpirations {
+		if _, ok := wanted[exp.ID]; ok {
+			indices = append(indices, i)
+			delete(wanted, exp.ID)
+		}
+	}
+	if len(wanted) > 0 {
+		for id := range wanted {
+			return 0, fmt.Errorf("%w: %s", ErrFileExpirationNotFound, id)
+		}
+	}
+
+	previous := data.FileExpirations
+	updated := append([]FileExpiration(nil), previous...)
+	for _, i := range indices {
+		updated[i].ExpiresAt = parsed.UTC().Format(time.RFC3339Nano)
+	}
+	data.FileExpirations = updated
+	if err := save(); err != nil {
+		data.FileExpirations = previous
+		return 0, err
+	}
+	return len(indices), nil
 }
 
 // CreateFileExpiration 创建文件到期记录
@@ -482,8 +544,16 @@ func DeleteFileExpirationByID(id string) error {
 
 	for i, exp := range data.FileExpirations {
 		if exp.ID == id {
-			data.FileExpirations = append(data.FileExpirations[:i], data.FileExpirations[i+1:]...)
-			return save()
+			previous := data.FileExpirations
+			remaining := make([]FileExpiration, 0, len(previous)-1)
+			remaining = append(remaining, previous[:i]...)
+			remaining = append(remaining, previous[i+1:]...)
+			data.FileExpirations = remaining
+			if err := save(); err != nil {
+				data.FileExpirations = previous
+				return err
+			}
+			return nil
 		}
 	}
 	return nil
@@ -502,55 +572,4 @@ func DeleteFileExpirationsByAccountID(accountID string) error {
 	}
 	data.FileExpirations = remaining
 	return save()
-}
-
-// ========== ImgBB 文件管理 ==========
-
-// AddImgBBFile 添加 ImgBB 文件记录
-func AddImgBBFile(file ImgBBFile) error {
-	dataLock.Lock()
-	defer dataLock.Unlock()
-
-	data.ImgBBFiles = append(data.ImgBBFiles, file)
-	return save()
-}
-
-// GetImgBBFiles 获取所有 ImgBB 文件记录（按上传时间倒序）
-func GetImgBBFiles() []ImgBBFile {
-	dataLock.RLock()
-	defer dataLock.RUnlock()
-
-	// 倒序返回（最新的在前）
-	files := make([]ImgBBFile, len(data.ImgBBFiles))
-	for i, f := range data.ImgBBFiles {
-		files[len(data.ImgBBFiles)-1-i] = f
-	}
-	return files
-}
-
-// GetImgBBFileByID 按 ID 获取 ImgBB 文件记录
-func GetImgBBFileByID(id string) (*ImgBBFile, error) {
-	dataLock.RLock()
-	defer dataLock.RUnlock()
-
-	for _, file := range data.ImgBBFiles {
-		if file.ID == id {
-			return &file, nil
-		}
-	}
-	return nil, fmt.Errorf("ImgBB 文件记录不存在")
-}
-
-// DeleteImgBBFile 删除 ImgBB 文件记录
-func DeleteImgBBFile(id string) error {
-	dataLock.Lock()
-	defer dataLock.Unlock()
-
-	for i, file := range data.ImgBBFiles {
-		if file.ID == id {
-			data.ImgBBFiles = append(data.ImgBBFiles[:i], data.ImgBBFiles[i+1:]...)
-			return save()
-		}
-	}
-	return fmt.Errorf("ImgBB 文件记录不存在")
 }

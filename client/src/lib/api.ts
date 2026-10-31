@@ -402,21 +402,6 @@ export async function getFileLink(
   );
 }
 
-// ==================== ImgBB 文件 API ====================
-
-export interface ImgBBFile {
-  id: string;
-  fileName: string;
-  url: string;
-  deleteUrl: string;
-  size: number;
-  uploadedAt: string;
-}
-
-export async function getImgBBFiles(): Promise<ImgBBFile[]> {
-  return request("/imgbb-files");
-}
-
 // ==================== 系统设置 API ====================
 
 export interface Settings {
@@ -425,8 +410,6 @@ export interface Settings {
   endpointProxyUrl: string;
   defaultExpirationDays: number;
   expirationCheckMinutes: number;
-  imgbbEnabled: boolean;
-  imgbbPriority: boolean;
 }
 
 export async function getSettings(): Promise<Settings> {
@@ -513,4 +496,60 @@ export async function getFileExpirations(): Promise<FileExpirationsResponse> {
 
 export async function deleteFileExpiration(id: string): Promise<void> {
   return request(`/file-expirations/${id}`, { method: "DELETE" });
+}
+
+export interface UpdateFileExpirationsResponse {
+  updatedCount: number;
+}
+
+export interface DeleteFileExpirationsResponse {
+  results: { id: string; success: boolean; error?: string }[];
+  successCount: number;
+  failCount: number;
+}
+
+export async function updateFileExpiration(id: string, expiresAt: string): Promise<UpdateFileExpirationsResponse> {
+  return request(`/file-expirations/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ expiresAt }),
+  });
+}
+
+export async function updateFileExpirations(ids: string[], expiresAt: string): Promise<UpdateFileExpirationsResponse> {
+  return request("/file-expirations", {
+    method: "PATCH",
+    body: JSON.stringify({ ids, expiresAt }),
+  });
+}
+
+export async function deleteFileExpirations(ids: string[]): Promise<DeleteFileExpirationsResponse> {
+  return request("/file-expirations/batch-delete", {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+}
+
+export interface ZipPreviewEntry {
+  name: string;
+  size: number;
+  compressedSize: number;
+  modifiedAt?: string;
+  isDir: boolean;
+}
+
+export interface FilePreview {
+  url: string;
+  downloadUrl?: string;
+  contentType: string;
+  kind: "image" | "video" | "audio" | "pdf" | "text" | "zip" | "unsupported";
+  text?: string;
+  truncated?: boolean;
+  entries?: ZipPreviewEntry[];
+  entryCount?: number;
+  archiveError?: string;
+}
+
+export async function getFilePreview(accountId: string, key: string, signal?: AbortSignal): Promise<FilePreview> {
+  const query = new URLSearchParams({ idGroup: accountId, key });
+  return request(`/file-preview?${query.toString()}`, { signal });
 }

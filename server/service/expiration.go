@@ -2,11 +2,71 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"fileflow/server/store"
 )
+
+// 到期修改与计划删除共用此锁，避免后台使用旧扫描结果删除已延期的文件。
+var expirationOperationLock sync.Mutex
+
+// UpdateFileExpirations 修改单个或多个文件的到期时间。
+func UpdateFileExpirations(ids []string, expiresAt string) (int, error) {
+	expirationOperationLock.Lock()
+	defer expirationOperationLock.Unlock()
+	return store.UpdateFileExpirations(ids, expiresAt)
+}
+
+// DeleteScheduledFile 删除云端文件并移除计划记录。
+func DeleteScheduledFile(ctx context.Context, id string) error {
+	expirationOperationLock.Lock()
+	defer expirationOperationLock.Unlock()
+
+	exp, err := store.GetFileExpirationByID(id)
+	if err != nil {
+		return err
+	}
+	return deleteScheduledFile(ctx, exp)
+}
+
+func deleteScheduledFile(ctx context.Context, exp *store.FileExpiration) error {
+	if err := DeleteFile(ctx, exp.AccountID, exp.FileKey); err != nil {
+		return err
+	}
+	if err := store.DeleteFileExpirationByID(exp.ID); err != nil {
+		return fmt.Errorf("文件已删除，但删除计划保存失败: %w", err)
+	}
+	return nil
+}
+
+// deleteExpiredFile 在删除前重新检查最新时间，扫描后已延期的记录会跳过。
+func deleteExpiredFile(ctx context.Context, id string) (bool, error) {
+	expirationOperationLock.Lock()
+	defer expirationOperationLock.Unlock()
+
+	exp, err := store.GetFileExpirationByID(id)
+	if errors.Is(err, store.ErrFileExpirationNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	expiresAt, err := time.Parse(time.RFC3339, exp.ExpiresAt)
+	if err != nil {
+		return false, fmt.Errorf("到期时间无效: %w", err)
+	}
+	if expiresAt.After(time.Now()) {
+		return false, nil
+	}
+	if err := deleteScheduledFile(ctx, exp); err != nil {
+		return false, err
+	}
+	return true, nil
+}
 
 // CheckAndDeleteExpiredFiles 检查并删除过期文件
 func CheckAndDeleteExpiredFiles(ctx context.Context) {
@@ -25,18 +85,15 @@ func CheckAndDeleteExpiredFiles(ctx context.Context) {
 	failCount := 0
 
 	for _, exp := range expiredFiles {
-		// 删除 S3 中的文件
-		err := DeleteFile(ctx, exp.AccountID, exp.FileKey)
+		deleted, err := deleteExpiredFile(ctx, exp.ID)
 		if err != nil {
 			log.Printf("[Expiration] 删除文件失败 (accountId=%s, key=%s): %v", exp.AccountID, exp.FileKey, err)
 			failCount++
 			continue
 		}
 
-		// 删除到期记录
-		if err := store.DeleteFileExpirationByID(exp.ID); err != nil {
-			log.Printf("[Expiration] 删除到期记录失败 (id=%s): %v", exp.ID, err)
-			// 文件已删除，记录删除失败也计入成功
+		if !deleted {
+			continue
 		}
 
 		successCount++

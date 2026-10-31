@@ -24,10 +24,10 @@ func SetupRouter(r *gin.Engine) {
 
 		// 文件操作（需要相应权限）
 		protected.GET("/files", middleware.RequirePermission("read"), GetFiles)
-		protected.GET("/imgbb-files", middleware.RequirePermission("read"), GetImgBBFiles)
 		protected.POST("/upload", middleware.RequirePermission("write"), Upload)
 		protected.DELETE("/file", middleware.RequirePermission("delete"), DeleteFile)
 		protected.GET("/link", middleware.RequirePermission("read"), GetLink)
+		protected.GET("/file-preview", middleware.RequirePermission("read"), GetFilePreview)
 	}
 
 	// 管理员专用接口（仅 JWT）
@@ -62,6 +62,9 @@ func SetupRouter(r *gin.Engine) {
 
 		// 文件到期管理
 		admin.GET("/file-expirations", GetFileExpirations)
+		admin.PATCH("/file-expirations", UpdateFileExpirations)
+		admin.PATCH("/file-expirations/:id", UpdateFileExpiration)
+		admin.POST("/file-expirations/batch-delete", BatchDeleteFileExpirations)
 		admin.DELETE("/file-expirations/:id", DeleteFileExpirationByID)
 	}
 }

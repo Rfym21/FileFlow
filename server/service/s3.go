@@ -358,12 +358,6 @@ func ListAccountsFilesByIDs(ctx context.Context, ids []string, prefix string, cu
 
 // DeleteFile 删除指定账户的文件或目录
 func DeleteFile(ctx context.Context, accountID, key string) error {
-	// 特殊处理：ImgBB 文件
-	if accountID == "imgbb" {
-		// ImgBB 文件的 key 就是 deleteUrl
-		return DeleteImgBBFile(key, 30*time.Second)
-	}
-
 	acc, err := store.GetAccountByID(accountID)
 	if err != nil {
 		return err
@@ -439,12 +433,6 @@ func deleteDirectory(ctx context.Context, client *s3.Client, bucket, prefix stri
 
 // GetFileLink 获取文件直链
 func GetFileLink(accountID, key string) (string, error) {
-	// 特殊处理：ImgBB 文件
-	if accountID == "imgbb" {
-		// ImgBB 文件的 key 就是直接访问 URL
-		return key, nil
-	}
-
 	acc, err := store.GetAccountByID(accountID)
 	if err != nil {
 		return "", err

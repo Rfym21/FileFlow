@@ -1,5 +1,5 @@
-import { useEffect, useState, useMemo } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useEffect, useState, useMemo, useRef } from "react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +14,7 @@ import {
 import { formatDate } from "@/lib/utils";
 import { Plus, Trash2, RefreshCw, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
+import ConfirmationDialog from "@/components/ConfirmationDialog";
 
 const PAGE_SIZE = 5;
 
@@ -34,40 +35,43 @@ export default function TokensManager() {
   const [submitting, setSubmitting] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [loadError, setLoadError] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Pick<Token, "id" | "name"> | null>(null);
+  const [deleteError, setDeleteError] = useState("");
+  const deleteInFlight = useRef(false);
 
   // 分页计算
-  const totalPages = Math.ceil(tokens.length / PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(tokens.length / PAGE_SIZE));
+  const page = Math.min(currentPage, totalPages);
   const paginatedTokens = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE;
+    const start = (page - 1) * PAGE_SIZE;
     return tokens.slice(start, start + PAGE_SIZE);
-  }, [tokens, currentPage]);
-
-  // 当数据变化时重置页码
-  useEffect(() => {
-    if (currentPage > totalPages && totalPages > 0) {
-      setCurrentPage(totalPages);
-    }
-  }, [tokens.length, totalPages, currentPage]);
+  }, [tokens, page]);
 
   const loadTokens = async () => {
     setLoading(true);
     try {
       const data = await getTokens();
       setTokens(data || []);
+      setLoadError(false);
     } catch (err) {
       console.error("加载令牌失败:", err);
+      setLoadError(true);
+      toast.error("加载令牌失败");
     } finally {
       setLoading(false);
     }
   };
 
   const handleSubmit = async () => {
+    if (submitting) return;
     if (!form.name.trim()) {
-      alert("请输入令牌名称");
+      toast.error("请输入令牌名称");
       return;
     }
     if (form.permissions.length === 0) {
-      alert("请选择至少一个权限");
+      toast.error("请选择至少一个权限");
       return;
     }
 
@@ -79,21 +83,42 @@ export default function TokensManager() {
       setShowForm(false);
       toast.success("令牌创建成功");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "创建失败");
+      toast.error(err instanceof Error ? err.message : "创建失败");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("确定要删除此令牌吗？删除后使用此令牌的应用将无法访问。"))
-      return;
+  const handleDelete = (target: Token) => {
+    if (loading || submitting || deletingId !== null) return;
+    setDeleteTarget({ id: target.id, name: target.name });
+    setDeleteError("");
+  };
+
+  const handleConfirmDelete = async () => {
+    const target = deleteTarget;
+    if (!target || deleteInFlight.current || loading || submitting || deletingId !== null) return;
+    deleteInFlight.current = true;
+    setDeletingId(target.id);
+    setDeleteError("");
     try {
-      await deleteToken(id);
-      await loadTokens();
+      await deleteToken(target.id);
+      setDeleteTarget(null);
+      setDeleteError("");
       toast.success("令牌已删除");
+      await loadTokens();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "删除失败");
+      setDeleteError(err instanceof Error ? err.message : "删除失败");
+    } finally {
+      deleteInFlight.current = false;
+      setDeletingId(null);
+    }
+  };
+
+  const handleDeleteOpenChange = (open: boolean) => {
+    if (!open && !deleteInFlight.current) {
+      setDeleteTarget(null);
+      setDeleteError("");
     }
   };
 
@@ -119,10 +144,10 @@ export default function TokensManager() {
   };
 
   useEffect(() => {
-    loadTokens();
+    void Promise.resolve().then(loadTokens);
   }, []);
 
-  if (loading) {
+  if (loading && tokens.length === 0 && !showForm) {
     return (
       <div className="flex items-center justify-center h-64">
         <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -133,26 +158,25 @@ export default function TokensManager() {
   return (
     <div className="space-y-6">
       {/* 工具栏 */}
-      <div className="flex justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm text-muted-foreground">
           共 {tokens.length} 个令牌
         </div>
-        <Button onClick={() => setShowForm(!showForm)}>
+        <Button disabled={loading || submitting || deletingId !== null} onClick={() => setShowForm(true)}>
           <Plus className="mr-2 h-4 w-4" />
           创建令牌
         </Button>
       </div>
 
       {/* 表单 */}
-      {showForm && (
-        <Card>
-          <CardHeader>
-            <CardTitle>创建 API 令牌</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+      <Dialog open={showForm} onOpenChange={(open) => { if (!submitting) setShowForm(open); }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg" onEscapeKeyDown={(event) => { if (submitting) event.preventDefault(); }} onPointerDownOutside={(event) => { if (submitting) event.preventDefault(); }}>
+          <DialogHeader><DialogTitle>创建 API 令牌</DialogTitle><DialogDescription>配置外部应用的访问名称与权限。</DialogDescription></DialogHeader>
+          <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }}>
+            <fieldset disabled={submitting} className="space-y-4">
             <div className="space-y-2">
-              <Label>令牌名称 *</Label>
-              <Input
+              <Label htmlFor="tokensmanager-field-1">令牌名称 *</Label>
+              <Input id="tokensmanager-field-1" required
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 placeholder="例如: 图床上传"
@@ -164,6 +188,8 @@ export default function TokensManager() {
                 {PERMISSIONS.map((perm) => (
                   <button
                     key={perm.value}
+                    type="button"
+                    aria-pressed={form.permissions.includes(perm.value)}
                     onClick={() => togglePermission(perm.value)}
                     className={`px-3 py-1.5 rounded-md text-sm border transition-colors ${
                       form.permissions.includes(perm.value)
@@ -183,91 +209,45 @@ export default function TokensManager() {
                   .join("、") || "无权限"}
               </p>
             </div>
-            <div className="flex gap-2">
-              <Button onClick={handleSubmit} disabled={submitting}>
-                {submitting ? "创建中..." : "创建"}
-              </Button>
-              <Button variant="outline" onClick={() => setShowForm(false)}>
-                取消
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+            </fieldset>
+            <DialogFooter><Button type="button" variant="outline" disabled={submitting} onClick={() => setShowForm(false)}>取消</Button><Button type="submit" disabled={submitting}>{submitting ? "创建中..." : "创建"}</Button></DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
-      {/* 令牌列表 */}
-      <div className="space-y-4">
-        {tokens.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-              <p>暂无 API 令牌</p>
-              <p className="text-sm">创建令牌以便外部应用访问</p>
-            </CardContent>
-          </Card>
-        ) : (
-          <>
-            {paginatedTokens.map((token) => (
-              <Card key={token.id}>
-                <CardContent className="p-4 space-y-3">
-                  <div className="flex items-start justify-between">
-                    <div className="space-y-1">
-                      <div className="font-medium">{token.name}</div>
-                      <div className="flex gap-1">
-                        {token.permissions.map((p) => (
-                          <span
-                            key={p}
-                            className="text-xs bg-secondary px-2 py-0.5 rounded"
-                          >
-                            {PERMISSIONS.find((x) => x.value === p)?.label || p}
-                          </span>
-                        ))}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        创建于 {formatDate(token.createdAt)}
-                      </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-destructive"
-                      onClick={() => handleDelete(token.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  {/* 令牌值 */}
-                  {token.token && (
-                    <div className="flex items-center gap-2">
-                      <code className="flex-1 p-2 bg-secondary rounded text-xs font-mono break-all select-all">
-                        {token.token}
-                      </code>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="shrink-0"
-                        onClick={() => handleCopy(token.token!, token.id)}
-                      >
-                        {copiedId === token.id ? (
-                          <Check className="h-4 w-4" />
-                        ) : (
-                          <Copy className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              onPageChange={setCurrentPage}
-              totalItems={tokens.length}
-              pageSize={PAGE_SIZE}
-            />
-          </>
-        )}
+      <div className="space-y-2">
+        {loadError && <div role="alert" className="flex items-center justify-between gap-3 py-2 text-sm text-destructive"><span>令牌列表加载失败</span><Button variant="outline" size="sm" disabled={loading || submitting || deletingId !== null} onClick={loadTokens}>重试</Button></div>}
+        <div className="overflow-x-auto border-y">
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <caption className="sr-only">API 令牌列表</caption>
+            <thead className="border-b bg-muted/40 text-muted-foreground"><tr><th scope="col" className="px-3 py-3">名称</th><th scope="col" className="px-3 py-3">权限</th><th scope="col" className="px-3 py-3">令牌</th><th scope="col" className="px-3 py-3">创建时间</th><th scope="col" className="px-3 py-3 text-right">操作</th></tr></thead>
+            <tbody className="divide-y">
+              {paginatedTokens.map((token) => (
+                <tr key={token.id} className="hover:bg-muted/30">
+                  <td className="max-w-56 break-words px-3 py-4 font-medium">{token.name}</td>
+                  <td className="px-3 py-4"><div className="flex flex-wrap gap-1">{token.permissions.map((permission) => <span key={permission} className="rounded bg-secondary px-2 py-0.5 text-xs">{PERMISSIONS.find((item) => item.value === permission)?.label || permission}</span>)}</div></td>
+                  <td className="px-3 py-4">{token.token ? <div className="flex items-center gap-2"><code className="max-w-56 truncate select-all font-mono text-xs" title={token.token}>{token.token}</code><Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" aria-label={`复制令牌 ${token.name}`} onClick={() => handleCopy(token.token!, token.id)}>{copiedId === token.id ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}</Button></div> : <span className="text-xs text-muted-foreground">未返回令牌值</span>}</td>
+                  <td className="whitespace-nowrap px-3 py-4 text-xs text-muted-foreground">{formatDate(token.createdAt)}</td>
+                  <td className="px-3 py-4 text-right"><Button variant="ghost" size="icon" className="text-destructive" aria-label={`删除令牌 ${token.name}`} title="删除令牌" disabled={loading || deletingId !== null} onClick={() => handleDelete(token)}>{deletingId === token.id ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}</Button></td>
+                </tr>
+              ))}
+              {tokens.length === 0 && <tr><td colSpan={5} className="space-y-1 py-12 text-center text-muted-foreground"><p>暂无 API 令牌</p><p className="text-xs">创建令牌以便外部应用访问</p></td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <fieldset disabled={loading || submitting || deletingId !== null}><Pagination currentPage={page} totalPages={totalPages} onPageChange={setCurrentPage} totalItems={tokens.length} pageSize={PAGE_SIZE} /></fieldset>
       </div>
+      <ConfirmationDialog
+        open={deleteTarget !== null}
+        onOpenChange={handleDeleteOpenChange}
+        title="删除 API 令牌"
+        description={`确定要删除 API 令牌「${deleteTarget?.name || ""}」吗？删除后使用此令牌的应用将无法访问。`}
+        busy={deletingId !== null}
+        error={deleteError || undefined}
+        onConfirm={handleConfirmDelete}
+      />
+
+
     </div>
   );
 }

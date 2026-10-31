@@ -131,21 +131,6 @@ func (b *SQLiteBackend) createTables() error {
 			UNIQUE(account_id, file_key)
 		)
 	`)
-	if err != nil {
-		return err
-	}
-
-	// 创建 imgbb_files 表
-	_, err = b.db.Exec(`
-		CREATE TABLE IF NOT EXISTS imgbb_files (
-			id TEXT PRIMARY KEY,
-			file_name TEXT NOT NULL,
-			url TEXT NOT NULL,
-			delete_url TEXT NOT NULL,
-			size INTEGER NOT NULL,
-			uploaded_at TEXT NOT NULL
-		)
-	`)
 	return err
 }
 
@@ -156,7 +141,6 @@ func (b *SQLiteBackend) Load() (*Data, error) {
 		Tokens:            []Token{},
 		WebDAVCredentials: []WebDAVCredential{},
 		FileExpirations:   []FileExpiration{},
-		ImgBBFiles:        []ImgBBFile{},
 	}
 
 	// 加载 accounts
@@ -284,25 +268,6 @@ func (b *SQLiteBackend) Load() (*Data, error) {
 		data.Settings.ExpirationCheckMinutes = 720
 	}
 
-	// 加载 ImgBB 配置
-	var imgbbEnabled sql.NullString
-	err = b.db.QueryRow(`SELECT value FROM settings WHERE key = 'imgbb_enabled'`).Scan(&imgbbEnabled)
-	if err == nil && imgbbEnabled.Valid {
-		data.Settings.ImgBBEnabled = imgbbEnabled.String == "true"
-	} else {
-		// 默认启用 ImgBB
-		data.Settings.ImgBBEnabled = true
-	}
-
-	var imgbbPriority sql.NullString
-	err = b.db.QueryRow(`SELECT value FROM settings WHERE key = 'imgbb_priority'`).Scan(&imgbbPriority)
-	if err == nil && imgbbPriority.Valid {
-		data.Settings.ImgBBPriority = imgbbPriority.String == "true"
-	} else {
-		// 默认优先使用 ImgBB
-		data.Settings.ImgBBPriority = true
-	}
-
 	// 加载 webdav_credentials
 	rows, err = b.db.Query(`
 		SELECT id, username, password, account_id, description,
@@ -363,25 +328,6 @@ func (b *SQLiteBackend) Load() (*Data, error) {
 
 		exp.CreatedAt = createdAt.String
 		data.FileExpirations = append(data.FileExpirations, exp)
-	}
-
-	// 加载 imgbb_files
-	rows, err = b.db.Query(`
-		SELECT id, file_name, url, delete_url, size, uploaded_at
-		FROM imgbb_files
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("查询 imgbb_files 失败: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var file ImgBBFile
-		err := rows.Scan(&file.ID, &file.FileName, &file.URL, &file.DeleteURL, &file.Size, &file.UploadedAt)
-		if err != nil {
-			return nil, fmt.Errorf("扫描 imgbb_file 行失败: %w", err)
-		}
-		data.ImgBBFiles = append(data.ImgBBFiles, file)
 	}
 
 	return data, nil
@@ -491,25 +437,6 @@ func (b *SQLiteBackend) Save(data *Data) error {
 		return fmt.Errorf("保存 settings 失败: %w", err)
 	}
 
-	// 保存 ImgBB 配置
-	imgbbEnabledVal := "false"
-	if data.Settings.ImgBBEnabled {
-		imgbbEnabledVal = "true"
-	}
-	_, err = tx.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('imgbb_enabled', ?)`, imgbbEnabledVal)
-	if err != nil {
-		return fmt.Errorf("保存 imgbb_enabled 失败: %w", err)
-	}
-
-	imgbbPriorityVal := "false"
-	if data.Settings.ImgBBPriority {
-		imgbbPriorityVal = "true"
-	}
-	_, err = tx.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('imgbb_priority', ?)`, imgbbPriorityVal)
-	if err != nil {
-		return fmt.Errorf("保存 imgbb_priority 失败: %w", err)
-	}
-
 	// 清空并重新插入 webdav_credentials
 	if _, err := tx.Exec("DELETE FROM webdav_credentials"); err != nil {
 		return fmt.Errorf("清空 webdav_credentials 失败: %w", err)
@@ -548,21 +475,6 @@ func (b *SQLiteBackend) Save(data *Data) error {
 		`, exp.ID, exp.AccountID, exp.FileKey, exp.ExpiresAt, exp.CreatedAt)
 		if err != nil {
 			return fmt.Errorf("插入 file_expiration 失败: %w", err)
-		}
-	}
-
-	// 清空并重新插入 imgbb_files
-	if _, err := tx.Exec("DELETE FROM imgbb_files"); err != nil {
-		return fmt.Errorf("清空 imgbb_files 失败: %w", err)
-	}
-
-	for _, file := range data.ImgBBFiles {
-		_, err := tx.Exec(`
-			INSERT INTO imgbb_files (id, file_name, url, delete_url, size, uploaded_at)
-			VALUES (?, ?, ?, ?, ?, ?)
-		`, file.ID, file.FileName, file.URL, file.DeleteURL, file.Size, file.UploadedAt)
-		if err != nil {
-			return fmt.Errorf("插入 imgbb_file 失败: %w", err)
 		}
 	}
 
