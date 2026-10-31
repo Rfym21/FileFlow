@@ -62,7 +62,7 @@ type Token struct {
 	UserID      string   `json:"userId"`
 	Name        string   `json:"name"`
 	Token       string   `json:"token"`
-	Permissions []string `json:"permissions"` // read, write, delete
+	Permissions []string `json:"permissions"` // read, write, delete; manage is MCP-only
 	CreatedAt   string   `json:"createdAt"`
 }
 

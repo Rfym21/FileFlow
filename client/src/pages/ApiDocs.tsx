@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import DirectUploadDocs from "@/components/DirectUploadDocs";
+import FileOperationsDocs from "@/components/FileOperationsDocs";
+import { Link } from "react-router-dom";
 
 /**
  * API 文档页面
@@ -15,6 +16,7 @@ export default function ApiDocs() {
         <p className="text-muted-foreground mt-2">
           FileFlow 提供 RESTful API，支持团队成员的登录凭证或 API Token 认证
         </p>
+        <p className="mt-3 text-sm text-muted-foreground">Agent 接入请查看独立的<Link to="/mcp-docs" className="mx-1 text-primary underline underline-offset-4">MCP 使用说明</Link>或<Link to="/skill-docs" className="mx-1 text-primary underline underline-offset-4">Skill 使用说明</Link>。</p>
       </div>
 
       {/* 认证方式 */}
@@ -66,7 +68,7 @@ export default function ApiDocs() {
               </tbody>
             </table>
           </div>
-          <p className="mt-4 text-sm text-muted-foreground">只读成员具有 read 权限，可读写成员具有 read、write、delete 权限。所有者和管理员额外具有 manage 权限，可管理成员、存储账户、系统设置与访问凭证；这些管理接口仅支持网页登录 JWT。</p>
+          <p className="mt-4 text-sm text-muted-foreground">只读成员具有 read 权限，可读写成员具有 read、write、delete 权限。所有者和管理员额外具有 manage 权限，可管理成员、存储账户、系统设置与访问凭证；REST 管理接口仅支持网页登录 JWT。API Token 可显式授予 manage 权限，仅用于 MCP 管理工具。</p>
           <p className="mt-2 text-xs text-muted-foreground">JWT 权限由成员当前角色决定，登录有效期为 24 小时。API Token 的实际权限取令牌配置与所属成员当前权限的交集，不能通过令牌获得额外权限。</p>
         </CardContent>
       </Card>
@@ -238,6 +240,7 @@ curl -X GET "${baseUrl}/api/files?idGroup=xxx&prefix=images/&limit=20" \\
                       <td className="py-2 text-muted-foreground">指定上传到的账户 ID，不填则智能选择</td>
                     </tr>
                     <tr><td className="py-2 pr-4"><code>randomFilename</code></td><td className="py-2 pr-4 text-muted-foreground">boolean string</td><td className="py-2 pr-4 text-muted-foreground">否</td><td className="py-2 text-muted-foreground">默认 true；传 false 保留原文件名，同名文件拒绝上传</td></tr>
+                    <tr><td className="py-2 pr-4"><code>requestId</code></td><td className="py-2 pr-4 text-muted-foreground">string</td><td className="py-2 pr-4 text-muted-foreground">否</td><td className="py-2 text-muted-foreground">最多 128 个字符；同一文件重试复用相同 ID，新上传使用新 ID</td></tr>
                     <tr>
                       <td className="py-2 pr-4"><code>expirationDays</code></td>
                       <td className="py-2 pr-4 text-muted-foreground">number</td>
@@ -251,7 +254,7 @@ curl -X GET "${baseUrl}/api/files?idGroup=xxx&prefix=images/&limit=20" \\
             <div>
               <p className="text-sm font-medium mb-2">请求示例</p>
               <pre className="bg-muted p-4 rounded-lg text-sm overflow-x-auto">
-{`# 方式一：直接上传文件
+{`# 方式一：提交文件，由服务器上传到 R2
 curl -X POST "${baseUrl}/api/upload" \\
   -H "Authorization: Bearer your-api-token" \\
   -F "file=@/path/to/image.jpg" \\
@@ -277,6 +280,8 @@ curl -X POST "${baseUrl}/api/upload" \\
   -F "expirationDays=0"`}
               </pre>
             </div>
+            <p className="text-sm text-muted-foreground">requestId 将上传绑定到当前凭证、参数和文件内容 SHA-256。已完成请求用相同 ID、相同内容及参数重试时返回原结果，不重复 PUT；相同 ID 的内容或参数变化返回 409。URL 上传也校验实际下载内容。</p>
+            <p className="text-sm text-muted-foreground">已完成上传的去重信息保留 24 小时。超过窗口后先检查目标文件是否存在，再决定是否使用新 requestId 上传，避免重复文件。</p>
             <div>
               <p className="text-sm font-medium mb-2">响应示例</p>
               <pre className="bg-muted p-4 rounded-lg text-sm overflow-x-auto">
@@ -292,7 +297,7 @@ curl -X POST "${baseUrl}/api/upload" \\
           </CardContent>
         </Card>
 
-        <DirectUploadDocs baseUrl={baseUrl} />
+        <FileOperationsDocs />
 
         {/* 获取文件链接 */}
         <Card>
@@ -449,8 +454,7 @@ curl -X POST "${baseUrl}/api/upload" \\
                     <td className="py-2 text-muted-foreground">资源不存在</td>
                   </tr>
                   <tr><td className="py-2 pr-4 font-medium">409</td><td className="py-2 text-muted-foreground">同名文件或上传任务冲突</td></tr>
-                  <tr><td className="py-2 pr-4 font-medium">410</td><td className="py-2 text-muted-foreground">上传任务已过期</td></tr>
-                  <tr><td className="py-2 pr-4 font-medium">412</td><td className="py-2 text-muted-foreground">R2 条件上传发现同名对象，未覆盖文件</td></tr>
+                  <tr><td className="py-2 pr-4 font-medium">410</td><td className="py-2 text-muted-foreground">文件或内部操作已过期</td></tr>
                   <tr><td className="py-2 pr-4 font-medium">429</td><td className="py-2 text-muted-foreground">可用容量、请求额度或并发任务数量不足</td></tr>
                   <tr>
                     <td className="py-2 pr-4 font-medium">500</td>

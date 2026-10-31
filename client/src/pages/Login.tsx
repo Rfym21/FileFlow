@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,7 +20,7 @@ export default function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-  const { refresh } = useAuth();
+  const { refresh, isAuthenticated } = useAuth();
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -30,13 +30,15 @@ export default function Login() {
     try {
       await login({ username, password });
       await refresh();
-      navigate("/");
+      navigate("/dashboard", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "登录失败");
     } finally {
       setLoading(false);
     }
   };
+
+  if (isAuthenticated) return <Navigate to="/dashboard" replace />;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted p-4">
@@ -83,6 +85,7 @@ export default function Login() {
               {loading ? "登录中..." : "登录"}
             </Button>
           </form>
+          <Link to="/" className="mt-4 block text-center text-sm text-muted-foreground hover:text-foreground">返回首页与使用文档</Link>
         </CardContent>
       </Card>
     </div>

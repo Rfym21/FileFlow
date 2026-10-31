@@ -63,7 +63,7 @@ func applyTeamState(data *Data, encoded string) error {
 	seenSessions := map[string]bool{}
 	for _, session := range state.UploadSessions {
 		if seenSessions[session.ID] || validateStoredUploadSession(session) != nil {
-			return fmt.Errorf("读取团队信息失败: 直传任务信息无效")
+			return fmt.Errorf("读取团队信息失败: 上传任务信息无效")
 		}
 		seenSessions[session.ID] = true
 	}

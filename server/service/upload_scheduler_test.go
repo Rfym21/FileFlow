@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestSchedulerReloadPreservesDirectUploadCleanup(t *testing.T) {
+func TestSchedulerReloadPreservesUploadCleanup(t *testing.T) {
 	setupPreviewAccount(t, "https://example.invalid")
 	StartScheduler()
 	defer StopScheduler()

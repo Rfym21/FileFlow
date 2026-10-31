@@ -98,7 +98,7 @@ export default function Guide() {
             <li><strong>Overview</strong></li>
             <li>点击右上角 <strong>Create bucket</strong> 按钮创建存储桶</li>
           </ol>
-          <ClickableImage src="/guide/step1.png" alt="进入 R2 存储" />
+          <ClickableImage src="/assets/guide/step1.png" alt="进入 R2 存储" />
         </CardContent>
       </Card>
 
@@ -120,7 +120,7 @@ export default function Guide() {
             <li>Default Storage Class 选择 <strong>Standard</strong></li>
             <li>点击 <strong>Create bucket</strong></li>
           </ol>
-          <ClickableImage src="/guide/step2.png" alt="创建 Bucket" />
+          <ClickableImage src="/assets/guide/step2.png" alt="创建 Bucket" />
         </CardContent>
       </Card>
 
@@ -145,7 +145,7 @@ export default function Guide() {
           <p className="text-xs text-muted-foreground">
             提示：也可以在 Custom Domains 中绑定自定义域名
           </p>
-          <ClickableImage src="/guide/step3.png" alt="获取 Public URL" />
+          <ClickableImage src="/assets/guide/step3.png" alt="获取 Public URL" />
         </CardContent>
       </Card>
 
@@ -177,7 +177,7 @@ export default function Guide() {
           <p className="text-xs text-destructive">
             注意：Secret Access Key 只显示一次，请立即保存！
           </p>
-          <ClickableImage src="/guide/step4.png" alt="创建 R2 API Token" />
+          <ClickableImage src="/assets/guide/step4.png" alt="创建 R2 API Token" />
         </CardContent>
       </Card>
 
@@ -204,7 +204,7 @@ export default function Guide() {
           <p className="text-xs text-muted-foreground">
             此 Token 用于通过 Cloudflare GraphQL API 查询 R2 用量统计
           </p>
-          <ClickableImage src="/guide/step5.png" alt="创建 User API Token" />
+          <ClickableImage src="/assets/guide/step5.png" alt="创建 User API Token" />
         </CardContent>
       </Card>
 

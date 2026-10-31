@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"fileflow/server/middleware"
 	"fileflow/server/store"
 
 	"github.com/gin-gonic/gin"
@@ -43,6 +44,11 @@ func GetTokens(c *gin.Context) {
 			Permissions: t.Permissions,
 			CreatedAt:   t.CreatedAt,
 		})
+		// Token-authenticated agents can enumerate credentials without acquiring
+		// the bearer values of other, potentially more privileged integrations.
+		if c.GetString(middleware.ContextKeyAuthType) == middleware.AuthTypeToken {
+			result[len(result)-1].Token = ""
+		}
 	}
 
 	c.JSON(http.StatusOK, result)
@@ -57,15 +63,21 @@ func CreateToken(c *gin.Context) {
 	}
 
 	// 验证权限值
-	validPerms := map[string]bool{"read": true, "write": true, "delete": true}
+	validPerms := map[string]bool{"read": true, "write": true, "delete": true, "manage": true}
 	for _, p := range req.Permissions {
 		if !validPerms[p] {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的权限值: " + p})
 			return
 		}
 	}
+	for _, permission := range req.Permissions {
+		if permission == "manage" && !store.HasAllFilePermissions(req.Permissions) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "MCP 管理权限必须同时授予 read、write、delete"})
+			return
+		}
+	}
 
-	user, ok := credentialMember(c, req.UserID, req.Permissions)
+	user, ok := tokenCredentialMember(c, req.UserID, req.Permissions)
 	if !ok {
 		return
 	}

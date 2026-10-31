@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/hex"
 	"errors"
 	"strings"
 	"time"
@@ -9,24 +10,24 @@ import (
 )
 
 const (
-	UploadStatusPending                 = "pending"
-	UploadStatusCompleting              = "completing"
-	UploadStatusCompleted               = "completed"
-	DirectUploadReservedClassAOps int64 = 1
-	DirectUploadReservedClassBOps int64 = 1
-	MaxDirectUploadFileSize       int64 = 5 * 1024 * 1024 * 1024
-	MaxPendingUploadsPerUser            = 64
-	MaxPendingUploads                   = 1024
+	UploadStatusPending            = "pending"
+	UploadStatusCompleting         = "completing"
+	UploadStatusCompleted          = "completed"
+	UploadReservedClassAOps  int64 = 1
+	UploadReservedClassBOps  int64 = 1
+	MaxUploadFileSize        int64 = 5 * 1024 * 1024 * 1024
+	MaxPendingUploadsPerUser       = 64
+	MaxPendingUploads              = 1024
 )
 
 var (
-	ErrUploadSessionNotFound  = errors.New("直传任务不存在")
-	ErrInvalidUploadSession   = errors.New("直传任务参数无效")
-	ErrUploadSessionExpired   = errors.New("直传任务已过期")
-	ErrUploadSessionConflict  = errors.New("直传任务状态冲突")
-	ErrUploadSessionForbidden = errors.New("无权使用该直传任务")
+	ErrUploadSessionNotFound  = errors.New("上传任务不存在")
+	ErrInvalidUploadSession   = errors.New("上传任务参数无效")
+	ErrUploadSessionExpired   = errors.New("上传任务已过期")
+	ErrUploadSessionConflict  = errors.New("上传任务状态冲突")
+	ErrUploadSessionForbidden = errors.New("无权使用该上传任务")
 	ErrUploadQuotaExceeded    = errors.New("剩余存储容量或操作额度不足")
-	ErrUploadSessionLimit     = errors.New("进行中的直传任务过多，请稍后重试")
+	ErrUploadSessionLimit     = errors.New("进行中的上传任务过多，请稍后重试")
 )
 
 // UploadSession contains metadata only. File bodies never enter the store.
@@ -49,6 +50,7 @@ type UploadSession struct {
 	ReservedClassBOps int64  `json:"reservedClassBOps"`
 	ConsumedClassBOps int64  `json:"consumedClassBOps"`
 	ContentType       string `json:"contentType"`
+	ContentSHA256     string `json:"contentSha256,omitempty"`
 	ExpirationDays    int    `json:"expirationDays"`
 	CreatedAt         string `json:"createdAt"`
 	UploadExpiresAt   string `json:"uploadExpiresAt"`
@@ -62,10 +64,15 @@ func validateStoredUploadSession(session UploadSession) error {
 	if session.ID == "" || session.UserID == "" || session.AccountID == "" || session.AuthVersion < 1 ||
 		session.FileKey == "" || (session.StagingKey != "" && session.StagingKey == session.FileKey) ||
 		len(session.StagingKey) > 1024 || len(session.FileKey) > 1024 || len(session.Filename) > 1024 ||
-		session.ExpectedSize < 0 || session.ExpectedSize > MaxDirectUploadFileSize ||
+		session.ExpectedSize < 0 || session.ExpectedSize > MaxUploadFileSize ||
 		session.ContentType == "" || len(session.ContentType) > 256 || strings.ContainsAny(session.ContentType, "\r\n") ||
 		session.ExpirationDays < 0 || session.ExpirationDays > 36500 {
 		return ErrInvalidUploadSession
+	}
+	if session.ContentSHA256 != "" {
+		if _, err := hex.DecodeString(session.ContentSHA256); len(session.ContentSHA256) != 64 || err != nil {
+			return ErrInvalidUploadSession
+		}
 	}
 	if session.ReservedClassAOps < 0 || session.ReservedClassAOps > 100 || session.ConsumedClassAOps < 0 || session.ConsumedClassAOps > session.ReservedClassAOps || session.ReservedClassBOps < 0 || session.ReservedClassBOps > 100 || session.ConsumedClassBOps < 0 || len(session.RequestID) > 128 {
 		return ErrInvalidUploadSession
@@ -227,10 +234,10 @@ func CreateUploadSession(session *UploadSession) error {
 		result.Status = UploadStatusPending
 	}
 	if result.ReservedClassAOps == 0 {
-		result.ReservedClassAOps = DirectUploadReservedClassAOps
+		result.ReservedClassAOps = UploadReservedClassAOps
 	}
 	if result.ReservedClassBOps == 0 {
-		result.ReservedClassBOps = DirectUploadReservedClassBOps
+		result.ReservedClassBOps = UploadReservedClassBOps
 	}
 	if result.Status != UploadStatusPending || validateStoredUploadSession(result) != nil {
 		return ErrInvalidUploadSession

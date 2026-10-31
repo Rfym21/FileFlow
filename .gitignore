@@ -51,6 +51,13 @@ temp/
 *.tmp
 *.cache
 
+# Python 脚本缓存
+__pycache__/
+*.py[cod]
+
+# 由前端构建从 Skill 源码生成
+client/public/assets/fileflow-skill.zip
+
 # Go 相关
 go.sum.backup
 *.pprof

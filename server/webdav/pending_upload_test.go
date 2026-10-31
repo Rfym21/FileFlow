@@ -14,7 +14,7 @@ import (
 	"fileflow/server/store"
 )
 
-func TestWebDAVHidesAndProtectsPendingDirectUploads(t *testing.T) {
+func TestWebDAVHidesAndProtectsPendingUploads(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FILEFLOW_ADMIN_USER", "owner")
 	t.Setenv("FILEFLOW_ADMIN_PASSWORD", "test-password")

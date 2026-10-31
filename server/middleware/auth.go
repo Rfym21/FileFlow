@@ -27,16 +27,20 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-func AuthMiddleware() gin.HandlerFunc { return authenticate(false) }
+func AuthMiddleware() gin.HandlerFunc { return authenticate(false, false) }
+
+// MCPAuthMiddleware accepts persistent API tokens, including an explicitly granted
+// MCP management scope. REST and WebDAV continue to discard that scope.
+func MCPAuthMiddleware() gin.HandlerFunc { return authenticate(false, true) }
 
 // JWTOnlyMiddleware requires an interactive member session, not an administrator role.
-func JWTOnlyMiddleware() gin.HandlerFunc { return authenticate(true) }
-func authenticate(jwtOnly bool) gin.HandlerFunc {
+func JWTOnlyMiddleware() gin.HandlerFunc { return authenticate(true, false) }
+func authenticate(jwtOnly, mcp bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
 		if strings.HasPrefix(header, "Bearer ") {
 			value := strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
-			if validateJWT(c, value) || (!jwtOnly && validateAPIToken(c, value)) {
+			if validateJWT(c, value) || (!jwtOnly && validateAPIToken(c, value, mcp)) {
 				c.Next()
 				return
 			}
@@ -99,10 +103,15 @@ func validateJWT(c *gin.Context, value string) bool {
 
 // EffectivePermissions intersects each credential with its member's current role.
 func EffectivePermissions(role string, requested []string) []string {
+	return effectivePermissions(role, requested, false)
+}
+
+func effectivePermissions(role string, requested []string, mcp bool) []string {
+	allowManagement := mcp && store.HasAllFilePermissions(requested)
 	allowed := store.PermissionsForRole(role)
 	result := make([]string, 0, len(requested))
 	for _, permission := range requested {
-		if permission == "manage" {
+		if permission == "manage" && !allowManagement {
 			continue
 		}
 		for _, grant := range allowed {
@@ -114,7 +123,7 @@ func EffectivePermissions(role string, requested []string) []string {
 	}
 	return result
 }
-func validateAPIToken(c *gin.Context, value string) bool {
+func validateAPIToken(c *gin.Context, value string, mcp bool) bool {
 	token, err := store.ValidateAPIToken(value)
 	if err != nil || token.UserID == "" {
 		return false
@@ -123,7 +132,7 @@ func validateAPIToken(c *gin.Context, value string) bool {
 	if err != nil || !user.IsActive {
 		return false
 	}
-	setUserContext(c, user, AuthTypeToken, EffectivePermissions(user.Role, token.Permissions))
+	setUserContext(c, user, AuthTypeToken, effectivePermissions(user.Role, token.Permissions, mcp))
 	c.Set(ContextKeyTokenID, token.ID)
 	return true
 }

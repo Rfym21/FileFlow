@@ -9,6 +9,14 @@ import (
 
 // credentialMember validates the member and prevents creating a credential above their role.
 func credentialMember(c *gin.Context, userID string, permissions []string) (*store.User, bool) {
+	return credentialMemberWithManagement(c, userID, permissions, false)
+}
+
+func tokenCredentialMember(c *gin.Context, userID string, permissions []string) (*store.User, bool) {
+	return credentialMemberWithManagement(c, userID, permissions, true)
+}
+
+func credentialMemberWithManagement(c *gin.Context, userID string, permissions []string, allowManagement bool) (*store.User, bool) {
 	if userID == "" {
 		userID = middleware.CurrentUser(c).ID
 	}
@@ -25,13 +33,18 @@ func credentialMember(c *gin.Context, userID string, permissions []string) (*sto
 	for _, permission := range permissions {
 		found := false
 		for _, grant := range allowed {
-			if permission == grant && permission != "manage" {
+			if permission == grant && (permission != "manage" || allowManagement) {
 				found = true
 				break
 			}
 		}
 		if !found {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "凭证权限不能超过所属成员的权限"})
+			return nil, false
+		}
+		// A scoped Agent token cannot mint a credential with broader permissions.
+		if c.GetString(middleware.ContextKeyAuthType) == middleware.AuthTypeToken && !middleware.HasPermission(c, permission) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "不能创建超出当前令牌权限的凭证"})
 			return nil, false
 		}
 	}

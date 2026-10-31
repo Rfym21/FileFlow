@@ -7,25 +7,23 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { uploadFile, initDirectUpload, putDirectUpload, completeDirectUpload, APIError, getAccounts, type UploadResult, type UploadInitResponse, type Account } from "@/lib/api";
+import { uploadFile, getAccounts, type UploadResult, type Account } from "@/lib/api";
 import { formatBytes } from "@/lib/utils";
 import { X, Copy, Check, FileImage, FileVideo, File as FileIcon, CloudUpload, ExternalLink, FolderOpen, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 
-type UploadMode = "direct" | "server";
-type UploadOptions = { mode: UploadMode; path: string; accountId: string; expirationDays: number; randomFilename: boolean };
+type UploadOptions = { path: string; accountId: string; expirationDays: number; randomFilename: boolean };
 interface UploadItem {
   id: string;
+  createdAt: number;
   file: File;
   options: UploadOptions;
-  status: "pending" | "uploading" | "confirming" | "success" | "error" | "cancelled";
+  status: "pending" | "uploading" | "success" | "error" | "cancelled";
   progress: number;
   result?: UploadResult;
-  session?: UploadInitResponse;
-  transferAttempted?: boolean;
-  putSucceeded?: boolean;
   error?: string;
+  retryExpired?: boolean;
 }
 interface FileUploaderProps {
   onUploadComplete?: () => void;
@@ -36,8 +34,9 @@ interface FileUploaderProps {
 function isImageFile(file: File | string): boolean { return (typeof file === "string" ? file : file.type).startsWith("image/"); }
 function isVideoFile(file: File | string): boolean { return (typeof file === "string" ? file : file.type).startsWith("video/"); }
 const EXPIRATION_OPTIONS = [{ value: -1, label: "使用默认设置" }, { value: 1, label: "1 天" }, { value: 7, label: "7 天" }, { value: 30, label: "30 天" }, { value: 90, label: "90 天" }, { value: 365, label: "1 年" }, { value: 0, label: "永久" }, { value: -2, label: "自定义" }];
-const MAX_DIRECT_BYTES = 5 * 1024 * 1024 * 1024;
+const MAX_FILE_BYTES = 5 * 1024 * 1024 * 1024;
 const MAX_CONCURRENT_UPLOADS = 3;
+const MAX_RETRY_WINDOW_MS = 24 * 60 * 60 * 1000;
 function uploadRequestId(): string {
   if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
   const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -54,7 +53,6 @@ export default function FileUploader({ onUploadComplete, defaultAccountId, defau
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState(defaultAccountId || "");
   const [customPath, setCustomPath] = useState(defaultPath || "");
-  const [mode, setMode] = useState<UploadMode>("direct");
   const [randomFilename, setRandomFilename] = useState(true);
   const [expirationDays, setExpirationDays] = useState(defaultExpirationDays);
   const [customExpirationDays, setCustomExpirationDays] = useState("30");
@@ -92,40 +90,11 @@ export default function FileUploader({ onUploadComplete, defaultAccountId, defau
     controllers.current.set(item.id, controller);
     const signal = controller.signal;
     try {
-      let session = item.session;
-      if (item.options.mode === "direct") {
-        if (!session) {
-          session = await initDirectUpload({ filename: item.file.name, size: item.file.size, contentType: item.file.type || "application/octet-stream", path: item.options.path || undefined, idGroup: item.options.accountId || undefined, expirationDays: item.options.expirationDays, randomFilename: item.options.randomFilename, requestId: item.id }, signal);
-          updateItem(item.id, { session });
-        }
-        if (item.putSucceeded) {
-          updateItem(item.id, { status: "confirming", progress: 100 });
-          success(item.id, await completeDirectUpload(session.uploadId, signal));
-          return;
-        }
-        // A lost PUT response may still have stored the complete object. Confirm
-        // it first; only a definite "not uploaded" response permits another PUT.
-        if (item.transferAttempted) {
-          updateItem(item.id, { status: "confirming" });
-          try {
-            success(item.id, await completeDirectUpload(session.uploadId, signal));
-            return;
-          } catch (error) {
-            if (!(error instanceof APIError) || error.code !== "upload_not_uploaded") throw error;
-          }
-        }
-        if (new Date(session.expiresAt).getTime() <= Date.now()) throw new Error("上传链接已过期，请移除该任务并重新选择文件");
-        updateItem(item.id, { status: "uploading", transferAttempted: true });
-        await putDirectUpload(session, item.file, { signal, onProgress: (progress) => updateItem(item.id, { progress }) });
-        updateItem(item.id, { status: "confirming", putSucceeded: true, progress: 100 });
-        success(item.id, await completeDirectUpload(session.uploadId, signal));
-      } else {
-        const result = await uploadFile(item.file, item.options.path || undefined, item.options.accountId || undefined, item.options.expirationDays, item.options.randomFilename, { signal, onProgress: (progress) => updateItem(item.id, { progress }) });
-        success(item.id, result);
-      }
+      const result = await uploadFile(item.file, item.options.path || undefined, item.options.accountId || undefined, item.options.expirationDays, item.options.randomFilename, { signal, requestId: item.id, onProgress: (progress) => updateItem(item.id, { progress }) });
+      success(item.id, result);
     } catch (error) {
       const cancelled = error instanceof DOMException && error.name === "AbortError";
-      updateItem(item.id, { status: cancelled ? "cancelled" : "error", error: cancelled ? (item.options.mode === "direct" ? "已停止客户端上传；已创建任务的预留额度需经后端校验清理后释放" : "上传已取消") : error instanceof Error ? error.message : "上传失败，请重试" });
+      updateItem(item.id, { status: cancelled ? "cancelled" : "error", error: cancelled ? "上传已取消" : error instanceof Error ? error.message : "上传失败，请重试" });
     } finally {
       controllers.current.delete(item.id);
       activeCount.current -= 1;
@@ -146,8 +115,9 @@ export default function FileUploader({ onUploadComplete, defaultAccountId, defau
     if (!can("write")) return;
     const days = expirationDays === -2 ? Number(customExpirationDays) : expirationDays;
     if (!Number.isInteger(days) || days < -1 || days > 3650 || (expirationDays === -2 && days < 1)) { toast.error("自定义有效期需为 1 到 3650 天"); return; }
-    const options: UploadOptions = { mode, path: customPath.trim(), accountId: selectedAccountId, expirationDays: days, randomFilename };
-    const added = files.map((file): UploadItem => ({ id: uploadRequestId(), file, options: { ...options }, status: mode === "direct" && file.size > MAX_DIRECT_BYTES ? "error" : "pending", progress: 0, ...(mode === "direct" && file.size > MAX_DIRECT_BYTES ? { error: "直传单文件最大 5 GiB" } : {}) }));
+    const options: UploadOptions = { path: customPath.trim(), accountId: selectedAccountId, expirationDays: days, randomFilename };
+    const createdAt = Date.now();
+    const added = files.map((file): UploadItem => ({ id: uploadRequestId(), createdAt, file, options: { ...options }, status: file.size > MAX_FILE_BYTES ? "error" : "pending", progress: 0, ...(file.size > MAX_FILE_BYTES ? { error: "单文件最大 5 GiB" } : {}) }));
     updateItems([...uploadsRef.current, ...added]);
     pump();
   };
@@ -160,8 +130,14 @@ export default function FileUploader({ onUploadComplete, defaultAccountId, defau
   const retryUpload = (id: string) => {
     if (!can("write") || controllers.current.has(id)) return;
     const item = uploadsRef.current.find((entry) => entry.id === id);
-    if (!item || (item.options.mode === "direct" && item.file.size > MAX_DIRECT_BYTES)) return;
-    updateItem(id, { status: "pending", error: undefined });
+    if (!item || item.file.size > MAX_FILE_BYTES) return;
+    if (Date.now() - item.createdAt >= MAX_RETRY_WINDOW_MS) {
+      const error = "重试窗口已过，请先核对文件列表，再重新选择文件上传";
+      updateItem(id, { status: "error", error, retryExpired: true });
+      toast.error(error);
+      return;
+    }
+    updateItem(id, { status: "pending", progress: 0, error: undefined });
     pump();
   };
   const handleDragEnter = useCallback((event: React.DragEvent) => { event.preventDefault(); event.stopPropagation(); dragCounter.current += 1; if (event.dataTransfer.items.length) setIsDragging(true); }, []);
@@ -174,8 +150,7 @@ export default function FileUploader({ onUploadComplete, defaultAccountId, defau
   if (!can("write")) return null;
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="space-y-1.5"><Label htmlFor="upload-mode">上传方式</Label><select id="upload-mode" className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={mode} onChange={(event) => setMode(event.target.value as UploadMode)}><option value="direct">浏览器直传 R2</option><option value="server">服务器中转</option></select><p className="text-xs text-muted-foreground">{mode === "direct" ? "文件直接发送到 R2，需配置存储桶 CORS" : "文件先发送到服务器，再转存到 R2"}</p></div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="space-y-1.5"><Label htmlFor="upload-account">目标账户</Label><select id="upload-account" value={selectedAccountId} onChange={(event) => setSelectedAccountId(event.target.value)} disabled={isLoadingAccounts} className="h-9 w-full rounded-md border bg-background px-3 text-sm"><option value="">自动选择（智能分配）</option>{availableAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select><p className="text-xs text-muted-foreground">仅显示已启用前端上传权限的账户</p></div>
         <div className="space-y-1.5"><Label htmlFor="upload-path">上传目录</Label><div className="relative"><FolderOpen className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input id="upload-path" value={customPath} onChange={(event) => setCustomPath(event.target.value)} placeholder="留空使用日期目录" className="h-9 pl-9" /></div><p className="text-xs text-muted-foreground">例如 images/avatar 或 docs/2026</p></div>
         <div className="space-y-1.5"><Label htmlFor="upload-expiration">文件有效期</Label><div className="flex gap-2"><select id="upload-expiration" value={expirationDays} onChange={(event) => setExpirationDays(Number(event.target.value))} className="h-9 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm">{EXPIRATION_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>{expirationDays === -2 && <Input aria-label="自定义有效期天数" type="number" min={1} max={3650} value={customExpirationDays} onChange={(event) => setCustomExpirationDays(event.target.value)} className="h-9 w-24" />}</div><p className="text-xs text-muted-foreground">文件到期后自动删除</p></div>
@@ -184,7 +159,7 @@ export default function FileUploader({ onUploadComplete, defaultAccountId, defau
         <label className="flex cursor-pointer items-center gap-2 text-sm"><Checkbox checked={!randomFilename} onCheckedChange={(checked) => setRandomFilename(checked !== true)} />保留原文件名</label><p className="text-xs text-muted-foreground">{randomFilename ? "使用随机文件名避免冲突" : "使用原文件名；重名时拒绝上传，不覆盖已有文件"}</p>
       </div>
       {selectedAccount && <p className="text-xs text-muted-foreground">容量剩余 {formatBytes(Math.max(0, selectedAccount.quota.maxSizeBytes - selectedAccount.usage.sizeBytes))} · 写请求剩余 {Math.max(0, selectedAccount.quota.maxClassAOps - selectedAccount.usage.classAOps).toLocaleString()}{selectedAccount.quota.maxClassBOps ? " · 读请求剩余 " + Math.max(0, selectedAccount.quota.maxClassBOps - selectedAccount.usage.classBOps).toLocaleString() : ""}。实际可用额度由服务器按并发任务预留校验。</p>}
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"><span>最多 3 个文件同时上传。直传单文件最大 5 GiB。</span>{uploads.some((item) => item.status === "success") && <Button variant="outline" size="sm" onClick={() => updateItems(uploadsRef.current.filter((item) => item.status !== "success"))}>清除已完成</Button>}</div>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"><span>最多 3 个文件同时上传，单文件最大 5 GiB。文件通过服务器上传。</span>{uploads.some((item) => item.status === "success") && <Button variant="outline" size="sm" onClick={() => updateItems(uploadsRef.current.filter((item) => item.status !== "success"))}>清除已完成</Button>}</div>
       <div onDragEnter={handleDragEnter} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop} onClick={() => fileInputRef.current?.click()} className={cn("cursor-pointer rounded-lg border-2 border-dashed p-8 text-center transition-colors", isDragging ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:bg-muted/50")}>
         <input ref={fileInputRef} aria-label="选择上传文件" type="file" multiple className="hidden" onChange={handleFileSelect} /><div className="flex flex-col items-center gap-3"><CloudUpload className="h-10 w-10 text-muted-foreground" /><div><p className="font-medium">{isDragging ? "释放以上传文件" : "拖拽文件到这里上传"}</p><p className="mt-1 text-sm text-muted-foreground">或点击选择文件，支持多文件上传</p></div></div>
       </div>
@@ -265,7 +240,7 @@ function UploadItemCard({ upload, onRemove, onCancel, onRetry }: UploadItemCardP
               <div className="min-w-0 flex-1">
                 <p className="font-medium text-sm truncate">{upload.file.name}</p>
                 <p className="text-xs text-muted-foreground">
-                  {formatBytes(upload.file.size)} · {upload.options.mode === "direct" ? "R2 直传" : "服务器中转"}
+                  {formatBytes(upload.file.size)}
                 </p>
               </div>
               <Button
@@ -279,16 +254,16 @@ function UploadItemCard({ upload, onRemove, onCancel, onRetry }: UploadItemCardP
             </div>
 
             {/* 状态和进度 */}
-            {(upload.status === "uploading" || upload.status === "confirming") && (
+            {upload.status === "uploading" && (
               <div className="mt-2">
                 <Progress value={upload.progress} className="h-1.5" />
-                <div className="mt-1 flex items-center justify-between gap-2"><p className="text-xs text-muted-foreground">{upload.status === "confirming" || (upload.options.mode === "server" && upload.progress >= 99) ? "正在确认上传结果…" : "上传中 " + upload.progress + "%"}</p><Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onCancel}>取消</Button></div>
+                <div className="mt-1 flex items-center justify-between gap-2"><p className="text-xs text-muted-foreground">{upload.progress >= 99 ? "服务器处理中…" : "上传中 " + upload.progress + "%"}</p><Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onCancel}>取消</Button></div>
               </div>
             )}
 
             {upload.status === "pending" && <p className="mt-2 text-xs text-muted-foreground">等待上传</p>}
             {(upload.status === "error" || upload.status === "cancelled") && (
-              <div className="mt-2 space-y-2"><p className="text-xs text-destructive">{upload.error}</p>{upload.options.mode === "direct" && <p className="text-xs text-muted-foreground">重试会复用原任务。若切换为服务器中转，请重新选择文件；已有任务的预留额度可能仍被占用。</p>}<Button variant="outline" size="sm" className="h-7 text-xs" onClick={onRetry}><RotateCcw className="mr-1 h-3 w-3" />{upload.putSucceeded || upload.transferAttempted ? "重试确认 / 上传" : "重试"}</Button></div>
+              <div className="mt-2 space-y-2"><p className="text-xs text-destructive">{upload.error}</p>{upload.file.size <= MAX_FILE_BYTES && !upload.retryExpired && <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onRetry}><RotateCcw className="mr-1 h-3 w-3" />重试</Button>}</div>
             )}
 
             {/* 成功结果 - 所有文件类型都显示 URL 和账户信息 */}

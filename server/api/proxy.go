@@ -48,7 +48,7 @@ func Proxy(c *gin.Context) {
 		return
 	}
 	if err := service.ChargeAccountOperations(accountID, 0, 1); err != nil {
-		directUploadError(c, err)
+		uploadError(c, err)
 		return
 	}
 

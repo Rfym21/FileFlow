@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"net/http"
 	"strconv"
 
@@ -307,7 +306,7 @@ func SyncAccounts(c *gin.Context) {
 			return
 		}
 
-		if err := service.SyncAccountUsage(context.Background(), acc); err != nil {
+		if err := service.SyncAccountUsage(c.Request.Context(), acc); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -317,7 +316,7 @@ func SyncAccounts(c *gin.Context) {
 		c.JSON(http.StatusOK, toAccountResponse(acc))
 	} else {
 		// 同步所有账户（同步执行，等待完成）
-		service.SyncAllAccountsUsage(context.Background())
+		service.SyncAllAccountsUsage(c.Request.Context())
 
 		// 返回更新后的所有账户信息
 		accounts := store.GetAccounts()

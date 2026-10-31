@@ -164,6 +164,13 @@ func GetFiles(c *gin.Context) {
 // Upload 上传文件（可指定账户，不指定则智能选择）
 // 支持两种方式：file 表单字段上传文件，或 url 参数从远程下载后上传
 func Upload(c *gin.Context) {
+	c.Header("Cache-Control", "private, no-store")
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, store.MaxUploadFileSize+1024*1024)
+	defer func() {
+		if c.Request.MultipartForm != nil {
+			_ = c.Request.MultipartForm.RemoveAll()
+		}
+	}()
 	var fileReader io.Reader
 	var fileSize int64
 	var contentType string
@@ -175,6 +182,11 @@ func Upload(c *gin.Context) {
 	// 检查是否有 file 表单字段
 	file, header, fileErr := c.Request.FormFile("file")
 	hasFile := fileErr == nil
+	var tooLarge *http.MaxBytesError
+	if errors.As(fileErr, &tooLarge) {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "上传请求超过 5 GiB 大小限制", "code": "upload_too_large"})
+		return
+	}
 
 	// 互斥校验：url 和 file 只能二选一
 	if urlParam != "" && hasFile {
@@ -226,10 +238,11 @@ func Upload(c *gin.Context) {
 	expirationDaysStr := c.PostForm("expirationDays")
 	var expirationDays int
 	if expirationDaysStr != "" {
-		expirationDays, _ = strconv.Atoi(expirationDaysStr)
-		// -1 表示使用默认设置，0 表示永久
-		if expirationDays < -1 {
-			expirationDays = -1
+		var err error
+		expirationDays, err = strconv.Atoi(expirationDaysStr)
+		if err != nil || expirationDays < -1 || expirationDays > 3650 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "expirationDays 必须是 -1、0 或 1 至 3650"})
+			return
 		}
 	} else {
 		expirationDays = -1 // 使用默认设置
@@ -249,11 +262,14 @@ func Upload(c *gin.Context) {
 		}
 		randomFilename = parsed
 	}
-	result, err := service.UploadRelay(c.Request.Context(), directUploadActor(c), service.DirectUploadRequest{Filename: originalFilename, Size: &fileSize,
-		ContentType: contentType, Path: customPath, IDGroup: accountID, ExpirationDays: &expirationDays, RandomFilename: &randomFilename}, fileReader)
+	result, changed, err := service.UploadRelay(c.Request.Context(), uploadActor(c), service.UploadRequest{Filename: originalFilename, Size: &fileSize,
+		ContentType: contentType, Path: customPath, IDGroup: accountID, ExpirationDays: &expirationDays, RandomFilename: &randomFilename, RequestID: c.PostForm("requestId")}, fileReader)
 	if err != nil {
-		directUploadError(c, err)
+		uploadError(c, err)
 		return
+	}
+	if !changed {
+		c.Set("audit_skip", true)
 	}
 
 	c.Set("audit_target", result.ID+"/"+result.Key)

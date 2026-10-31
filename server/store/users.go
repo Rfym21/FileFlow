@@ -71,6 +71,17 @@ func (u *User) HasPermission(permission string) bool {
 	return false
 }
 
+// HasAllFilePermissions is required when explicitly delegating MCP management.
+// Management can create members and reset passwords, so it represents full
+// administration rather than a narrower capability isolated from file access.
+func HasAllFilePermissions(permissions []string) bool {
+	granted := make(map[string]bool, len(permissions))
+	for _, permission := range permissions {
+		granted[permission] = true
+	}
+	return granted["read"] && granted["write"] && granted["delete"]
+}
+
 func GetUsers() []User {
 	dataLock.RLock()
 	defer dataLock.RUnlock()
@@ -347,6 +358,12 @@ func RevokeUserSessions(id string) error {
 
 // credentialUser validates the effective owner while dataLock is held.
 func credentialUser(id string, permissions []string) (*User, error) {
+	return credentialUserWithManagement(id, permissions, false)
+}
+
+// credentialUserWithManagement permits manage only for API tokens. WebDAV uses
+// credentialUser and is deliberately restricted to file permissions.
+func credentialUserWithManagement(id string, permissions []string, allowManagement bool) (*User, error) {
 	if data == nil {
 		return nil, ErrInvalidUser
 	}
@@ -364,7 +381,8 @@ func credentialUser(id string, permissions []string) (*User, error) {
 	}
 	user := data.Users[i]
 	for _, permission := range permissions {
-		if (permission != "read" && permission != "write" && permission != "delete") || !user.HasPermission(permission) {
+		valid := permission == "read" || permission == "write" || permission == "delete" || (allowManagement && permission == "manage")
+		if !valid || !user.HasPermission(permission) {
 			return nil, fmt.Errorf("%w: 凭证权限超出成员权限", ErrInvalidUser)
 		}
 	}

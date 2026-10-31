@@ -9,12 +9,14 @@ import (
 
 // Config 应用配置
 type Config struct {
-	AdminUser     string
-	AdminPassword string
-	JWTSecret     string
-	Port          string
-	DataDir       string
-	DatabaseURL   string
+	AdminUser         string
+	AdminPassword     string
+	JWTSecret         string
+	Port              string
+	DataDir           string
+	DatabaseURL       string
+	MCPAllowedOrigins string
+	MCPAllowedHosts   string
 }
 
 var cfg *Config
@@ -31,12 +33,14 @@ func Load() *Config {
 	}
 
 	cfg = &Config{
-		AdminUser:     getEnv("FILEFLOW_ADMIN_USER", "admin"),
-		AdminPassword: getEnv("FILEFLOW_ADMIN_PASSWORD", ""),
-		JWTSecret:     getEnv("FILEFLOW_JWT_SECRET", ""),
-		Port:          getEnv("FILEFLOW_PORT", "8080"),
-		DataDir:       getEnv("FILEFLOW_DATA_DIR", "data"),
-		DatabaseURL:   getEnv("FILEFLOW_DATABASE_URL", ""),
+		AdminUser:         getEnv("FILEFLOW_ADMIN_USER", "admin"),
+		AdminPassword:     getEnv("FILEFLOW_ADMIN_PASSWORD", ""),
+		JWTSecret:         getEnv("FILEFLOW_JWT_SECRET", ""),
+		Port:              getEnv("FILEFLOW_PORT", "8080"),
+		DataDir:           getEnv("FILEFLOW_DATA_DIR", "data"),
+		DatabaseURL:       getEnv("FILEFLOW_DATABASE_URL", ""),
+		MCPAllowedOrigins: getEnv("FILEFLOW_MCP_ALLOWED_ORIGINS", ""),
+		MCPAllowedHosts:   getEnv("FILEFLOW_MCP_ALLOWED_HOSTS", ""),
 	}
 
 	// 验证必要配置

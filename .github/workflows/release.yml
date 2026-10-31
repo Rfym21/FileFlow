@@ -176,6 +176,15 @@ jobs:
           mkdir -p "build/$package" dist
           go build -trimpath -ldflags="-s -w" -o "build/$package/$binary" .
           cp .version README.md .env.example "build/$package/"
+          mkdir -p "build/$package/docs"
+          cp docs/mcp.md docs/skill.md "build/$package/docs/"
+          mkdir -p "build/$package/skills/fileflow/agents" \
+            "build/$package/skills/fileflow/references" \
+            "build/$package/skills/fileflow/scripts"
+          cp skills/fileflow/SKILL.md "build/$package/skills/fileflow/"
+          cp skills/fileflow/agents/openai.yaml "build/$package/skills/fileflow/agents/"
+          cp skills/fileflow/references/operations.md "build/$package/skills/fileflow/references/"
+          cp skills/fileflow/scripts/fileflow.py "build/$package/skills/fileflow/scripts/"
 
           if [[ "$GOOS" == "windows" ]]; then
             (cd build && zip -r "../dist/$package.zip" "$package")
@@ -300,5 +309,5 @@ jobs:
             ```
 
             Download the archive for your OS (linux, darwin/macOS, windows) and architecture (amd64 or arm64).
-            Each archive includes the binary with its embedded frontend, .version, README.md, and .env.example.
+            Each archive includes the binary with its embedded frontend, .version, README.md, .env.example, MCP and Skill documentation, and the installable skills/fileflow bundle.
             Verify downloaded archives against checksums.txt with `sha256sum --ignore-missing -c checksums.txt`.

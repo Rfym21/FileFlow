@@ -5,6 +5,7 @@ import (
 	"math"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -24,6 +25,30 @@ func sampleUploadSession() UploadSession {
 	id := uuid.New().String()
 	now := time.Now().UTC()
 	return UploadSession{ID: id, UserID: "writer", AuthType: "jwt", AuthVersion: data.Users[0].AuthVersion, AccountID: "storage", FileKey: "files/" + id + ".txt", Filename: "file.txt", ExpectedSize: 100, ContentType: "text/plain", ExpirationDays: 7, CreatedAt: now.Format(time.RFC3339), UploadExpiresAt: now.Add(15 * time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339), RequestID: id, RequestedPath: "files", RandomFilename: true}
+}
+
+func TestUploadContentDigestValidationAndTeamStatePersistence(t *testing.T) {
+	useUploadTestData(t)
+	for _, digest := range []string{"a", strings.Repeat("g", 64), strings.Repeat("a", 65)} {
+		session := sampleUploadSession()
+		session.ContentSHA256 = digest
+		if err := CreateUploadSession(&session); !errors.Is(err, ErrInvalidUploadSession) {
+			t.Fatalf("invalid content digest accepted: %q %v", digest, err)
+		}
+	}
+	session := sampleUploadSession()
+	session.ContentSHA256 = strings.Repeat("ab", 32)
+	if err := CreateUploadSession(&session); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := marshalTeamState(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded := Data{Accounts: append([]Account(nil), data.Accounts...)}
+	if err := applyTeamState(&loaded, encoded); err != nil || len(loaded.UploadSessions) != 1 || loaded.UploadSessions[0].ContentSHA256 != session.ContentSHA256 {
+		t.Fatalf("content digest lost across team-state persistence: %v", err)
+	}
 }
 
 func snapshotUploadData() Data {

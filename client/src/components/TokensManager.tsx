@@ -19,6 +19,7 @@ import { Plus, Trash2, RefreshCw, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
 import ConfirmationDialog from "@/components/ConfirmationDialog";
 import { useAuth } from "@/hooks/useAuth";
+import { Link } from "react-router-dom";
 
 const PAGE_SIZE = 5;
 
@@ -26,6 +27,7 @@ const PERMISSIONS = [
   { value: "read", label: "读取", desc: "列表、下载、获取链接" },
   { value: "write", label: "写入", desc: "上传文件" },
   { value: "delete", label: "删除", desc: "删除文件" },
+  { value: "manage", label: "MCP 管理", desc: "通过 MCP 管理团队、账号、系统设置、凭证和操作记录" },
 ];
 
 export default function TokensManager() {
@@ -149,10 +151,14 @@ export default function TokensManager() {
   };
 
   const togglePermission = (perm: string) => {
+    if (perm === "manage" && !form.permissions.includes("manage")) {
+      setForm({ ...form, permissions: ["read", "write", "delete", "manage"] });
+      return;
+    }
     if (form.permissions.includes(perm)) {
       setForm({
         ...form,
-        permissions: form.permissions.filter((p) => p !== perm),
+        permissions: form.permissions.filter((p) => p !== perm && (perm === "manage" || p !== "manage")),
       });
     } else {
       setForm({
@@ -176,6 +182,7 @@ export default function TokensManager() {
 
   return (
     <div className="space-y-6">
+      <p className="text-sm text-muted-foreground">API 令牌也可用于 Agent 连接 MCP。<Link to="/mcp-docs" className="text-primary underline underline-offset-4">查看 MCP 使用说明</Link></p>
       {/* 工具栏 */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm text-muted-foreground">
@@ -236,6 +243,7 @@ export default function TokensManager() {
                   .map((p) => p.desc)
                   .join("、") || "无权限"}
               </p>
+              <p className="text-xs text-muted-foreground">MCP 管理仅可授予所有者或管理员，只在 MCP 接口生效。选择后同时授予读取、写入和删除，允许 Agent 全量管理；取消任一文件权限也会取消 MCP 管理。</p>
             </div>
             </fieldset>
             <DialogFooter><Button type="button" variant="outline" disabled={submitting} onClick={() => setShowForm(false)}>取消</Button><Button type="submit" disabled={submitting}>{submitting ? "创建中..." : "创建"}</Button></DialogFooter>

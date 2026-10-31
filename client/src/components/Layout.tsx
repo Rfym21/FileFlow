@@ -27,12 +27,14 @@ import {
   Clock,
   Users,
   UserRound,
+  Bot,
+  Terminal,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems: { to: string; icon: LucideIcon; label: string; manage?: boolean }[] = [
-  { to: "/", icon: LayoutDashboard, label: "仪表盘" },
+  { to: "/dashboard", icon: LayoutDashboard, label: "仪表盘" },
   { to: "/files", icon: FolderOpen, label: "文件管理" },
   { to: "/scheduled-deletions", icon: Clock, label: "计划删除" },
   { to: "/team", icon: Users, label: "团队成员", manage: true },
@@ -41,6 +43,8 @@ const navItems: { to: string; icon: LucideIcon; label: string; manage?: boolean 
   { to: "/proxy-guide", icon: Network, label: "代理部署" },
   { to: "/api-docs", icon: FileCode, label: "API 文档" },
   { to: "/webdav-docs", icon: FolderTree, label: "WebDAV 接口" },
+  { to: "/mcp-docs", icon: Bot, label: "MCP 使用说明" },
+  { to: "/skill-docs", icon: Terminal, label: "Skill 使用说明" },
 ];
 
 export default function Layout() {
@@ -171,7 +175,7 @@ export default function Layout() {
               <NavLink
                 key={item.to}
                 to={item.to}
-                end={item.to === "/"}
+                end={item.to === "/dashboard"}
                 className={({ isActive }) =>
                   cn(
                     "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all",

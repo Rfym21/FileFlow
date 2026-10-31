@@ -394,9 +394,15 @@ func GetTokenByValue(tokenValue string) (*Token, error) {
 
 // CreateToken 创建 Token
 func CreateToken(t *Token) error {
+	if t == nil {
+		return ErrInvalidUser
+	}
 	dataLock.Lock()
 	defer dataLock.Unlock()
-	user, err := credentialUser(t.UserID, t.Permissions)
+	if t.HasPermission("manage") && !HasAllFilePermissions(t.Permissions) {
+		return fmt.Errorf("%w: MCP 管理权限必须同时授予 read、write、delete", ErrInvalidUser)
+	}
+	user, err := credentialUserWithManagement(t.UserID, t.Permissions, true)
 	if err != nil {
 		return err
 	}

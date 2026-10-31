@@ -45,10 +45,14 @@ func AuditMiddleware() gin.HandlerFunc {
 				target = target[:len(target)-1]
 			}
 		}
+		action := auditAction(method, route)
+		if tool := c.GetString("audit_mcp_tool"); tool != "" {
+			action = "mcp." + tool
+		}
 		entry := &store.AuditEntry{
 			UserID:   c.GetString(ContextKeyUserID),
 			Username: c.GetString(ContextKeyUser),
-			Action:   auditAction(method, route),
+			Action:   action,
 			Target:   target,
 			Status:   c.Writer.Status(),
 		}
@@ -67,8 +71,6 @@ func auditAction(method, route string) string {
 		"POST /api/users":                         "添加团队成员",
 		"PUT /api/users/:id":                      "修改团队成员",
 		"POST /api/upload":                        "上传文件",
-		"POST /api/upload/init":                   "创建直传任务",
-		"POST /api/upload/complete":               "完成文件直传",
 		"DELETE /api/file":                        "删除文件",
 		"POST /api/accounts":                      "添加存储账号",
 		"PUT /api/accounts/:id":                   "修改存储账号",

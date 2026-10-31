@@ -3,6 +3,8 @@ import { AuthProvider } from "@/components/AuthProvider";
 import { useAuth } from "@/hooks/useAuth";
 import { Toaster } from "@/components/ui/sonner";
 import Layout from "@/components/Layout";
+import PublicLayout from "@/components/PublicLayout";
+import Home from "@/pages/Home";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import Files from "@/pages/Files";
@@ -12,6 +14,8 @@ import Guide from "@/pages/Guide";
 import ProxyGuide from "@/pages/ProxyGuide";
 import ApiDocs from "@/pages/ApiDocs";
 import WebDAVDocs from "@/pages/WebDAVDocs";
+import MCPDocs from "@/pages/MCPDocs";
+import SkillDocs from "@/pages/SkillDocs";
 import ScheduledDeletions from "@/pages/ScheduledDeletions";
 import TeamMembers from "@/pages/TeamMembers";
 
@@ -39,24 +43,28 @@ function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/" element={<PublicLayout />}>
+            <Route index element={<Home />} />
+            <Route path="guide" element={<Guide />} />
+            <Route path="proxy-guide" element={<ProxyGuide />} />
+            <Route path="api-docs" element={<ApiDocs />} />
+            <Route path="webdav-docs" element={<WebDAVDocs />} />
+            <Route path="mcp-docs" element={<MCPDocs />} />
+            <Route path="skill-docs" element={<SkillDocs />} />
+          </Route>
           <Route
-            path="/"
             element={
               <ProtectedRoute>
                 <Layout />
               </ProtectedRoute>
             }
           >
-            <Route index element={<Dashboard />} />
+            <Route path="dashboard" element={<Dashboard />} />
             <Route path="files" element={<Files />} />
             <Route path="files/:accountId" element={<AccountFilesDetail />} />
             <Route path="scheduled-deletions" element={<ScheduledDeletions />} />
             <Route path="settings" element={<ManageRoute><Settings /></ManageRoute>} />
             <Route path="team" element={<ManageRoute><TeamMembers /></ManageRoute>} />
-            <Route path="guide" element={<Guide />} />
-            <Route path="proxy-guide" element={<ProxyGuide />} />
-            <Route path="api-docs" element={<ApiDocs />} />
-            <Route path="webdav-docs" element={<WebDAVDocs />} />
           </Route>
         </Routes>
         <Toaster />

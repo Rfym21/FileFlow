@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"fileflow/server/api"
@@ -21,7 +22,18 @@ import (
 //go:embed client/dist/*
 var staticFiles embed.FS
 
+//go:embed skills/fileflow/SKILL.md skills/fileflow/agents/openai.yaml skills/fileflow/references/operations.md skills/fileflow/scripts/fileflow.py
+var skillFiles embed.FS
+
+//go:embed .version
+var versionMetadata string
+
 func main() {
+	for _, line := range strings.Split(versionMetadata, "\n") {
+		if value, ok := strings.CutPrefix(strings.TrimSpace(line), "version="); ok {
+			api.MCPServerVersion = value
+		}
+	}
 	// 加载配置
 	cfg := config.Load()
 	log.Printf("FileFlow 启动中，端口: %s", cfg.Port)
@@ -47,6 +59,13 @@ func main() {
 
 	// 配置 API 路由
 	api.SetupRouter(r)
+	skillFS, err := fs.Sub(skillFiles, "skills/fileflow")
+	if err != nil {
+		log.Fatalf("读取 Skill 文件失败: %v", err)
+	}
+	if err := api.SetupSkillRouter(r, skillFS); err != nil {
+		log.Fatalf("注册 Skill 下载失败: %v", err)
+	}
 
 	// 配置 WebDAV 路由
 	// 注意：r.Any() 只处理标准 HTTP 方法，不包含 WebDAV 的自定义方法
@@ -83,6 +102,19 @@ func main() {
 // corsMiddleware CORS 中间件
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if c.Request.URL.Path == "/mcp" {
+			if c.Request.Method == http.MethodOptions {
+				if !api.MCPCheckLocalHost(c) || !api.MCPCheckOrigin(c) {
+					return
+				}
+				c.Header("Access-Control-Allow-Methods", "POST, GET, DELETE, OPTIONS")
+				c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, MCP-Protocol-Version, MCP-Session-Id, Last-Event-ID")
+				c.AbortWithStatus(http.StatusNoContent)
+				return
+			}
+			c.Next()
+			return
+		}
 		// WebDAV 路径跳过 CORS 处理（它们有自己的 OPTIONS 处理）
 		if len(c.Request.URL.Path) >= 7 && c.Request.URL.Path[:7] == "/webdav" {
 			c.Next()
@@ -124,12 +156,6 @@ func setupStaticFiles(r *gin.Engine) {
 		r.StaticFS("/assets", http.FS(assetsFS))
 	}
 
-	// guide 子目录
-	guideFS, err := fs.Sub(subFS, "guide")
-	if err == nil {
-		r.StaticFS("/guide", http.FS(guideFS))
-	}
-
 	// favicon
 	r.GET("/favicon.svg", func(c *gin.Context) {
 		content, err := fs.ReadFile(subFS, "favicon.svg")
@@ -143,7 +169,7 @@ func setupStaticFiles(r *gin.Engine) {
 	// SPA 路由处理
 	r.NoRoute(func(c *gin.Context) {
 		// API 路由返回 404
-		if len(c.Request.URL.Path) > 4 && c.Request.URL.Path[:4] == "/api" {
+		if c.Request.URL.Path == "/api" || strings.HasPrefix(c.Request.URL.Path, "/api/") {
 			c.JSON(http.StatusNotFound, gin.H{"error": "接口不存在"})
 			return
 		}

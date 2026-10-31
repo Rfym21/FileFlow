@@ -477,83 +477,42 @@ export async function getFiles(
   return request(`/files${query}`, { signal: options?.signal });
 }
 
-export interface UploadInitRequest {
-  filename: string;
-  size: number;
-  contentType?: string;
-  path?: string;
-  idGroup?: string;
-  expirationDays?: number;
-  randomFilename?: boolean;
-  requestId?: string;
-}
+type UploadTransferOptions = { signal?: AbortSignal; onProgress?: (progress: number) => void; requestId?: string };
 
-export interface UploadInitResponse {
-  uploadId: string;
-  url: string;
-  method: "PUT";
-  headers: Record<string, string>;
-  expiresAt: string;
-  accountId: string;
-  key: string;
-  size: number;
-}
-
-export async function initDirectUpload(data: UploadInitRequest, signal?: AbortSignal): Promise<UploadInitResponse> {
-  return request("/upload/init", { method: "POST", body: JSON.stringify(data), signal });
-}
-
-export async function completeDirectUpload(uploadId: string, signal?: AbortSignal): Promise<UploadResult> {
-  return request("/upload/complete", { method: "POST", body: JSON.stringify({ uploadId }), signal });
-}
-
-type UploadTransferOptions = { signal?: AbortSignal; onProgress?: (progress: number) => void };
-
-function sendUpload<T>(url: string, method: string, body: XMLHttpRequestBodyInit, headers: Record<string, string>, options: UploadTransferOptions, localAPI: boolean): Promise<T> {
+function sendUpload(body: FormData, options: UploadTransferOptions): Promise<UploadResult> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    const token = localAPI ? getToken() : null;
+    const token = getToken();
     const cleanup = () => options.signal?.removeEventListener("abort", abort);
     const abort = () => xhr.abort();
     if (options.signal?.aborted) { reject(new DOMException("上传已取消", "AbortError")); return; }
-    xhr.open(method, url);
+    xhr.open("POST", `${API_BASE}/upload`);
     xhr.timeout = 60 * 60 * 1000;
     if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
-    for (const [name, value] of Object.entries(headers)) {
-      // The browser supplies these forbidden headers from the actual File.
-      if (!["host", "content-length", "authorization"].includes(name.toLowerCase())) xhr.setRequestHeader(name, value);
-    }
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable && event.total > 0) options.onProgress?.(Math.min(99, Math.round(event.loaded * 100 / event.total)));
     };
     xhr.onload = () => {
       cleanup();
       if (xhr.status >= 200 && xhr.status < 300) {
-        try { resolve(localAPI ? JSON.parse(xhr.responseText) as T : undefined as T); }
+        try { resolve(JSON.parse(xhr.responseText) as UploadResult); }
         catch { reject(new Error("上传响应格式错误，请刷新文件列表确认结果")); }
         return;
       }
-      let message = localAPI ? "服务器上传失败" : `R2 上传失败（${xhr.status}），请检查上传链接或存储桶设置`;
-      if (localAPI) {
-        try { message = JSON.parse(xhr.responseText).error || message; } catch { /* keep a concise HTTP error */ }
-        if (token && getToken() === token) {
-          if (xhr.status === 401) clearToken();
-          if (xhr.status === 403) window.dispatchEvent(new Event(PERMISSIONS_CHANGED_EVENT));
-        }
+      let message = "服务器上传失败";
+      try { message = JSON.parse(xhr.responseText).error || message; } catch { /* keep a concise HTTP error */ }
+      if (token && getToken() === token) {
+        if (xhr.status === 401) clearToken();
+        if (xhr.status === 403) window.dispatchEvent(new Event(PERMISSIONS_CHANGED_EVENT));
       }
       reject(new APIError(message, xhr.status));
     };
-    xhr.onerror = () => { cleanup(); reject(new Error(localAPI ? "网络连接失败，请检查服务器连接" : "直传连接失败，请检查网络和 R2 存储桶的 CORS 配置，或选择服务器中转上传")); };
+    xhr.onerror = () => { cleanup(); reject(new Error("网络连接失败，请检查服务器连接")); };
     xhr.ontimeout = () => { cleanup(); reject(new Error("上传超时，请检查连接后重试")); };
     xhr.onabort = () => { cleanup(); reject(new DOMException("上传已取消", "AbortError")); };
     options.signal?.addEventListener("abort", abort, { once: true });
     xhr.send(body);
   });
-}
-
-export async function putDirectUpload(session: UploadInitResponse, file: File, options: UploadTransferOptions = {}): Promise<void> {
-  if (session.size !== file.size) throw new Error("上传任务与文件大小不一致");
-  await sendUpload<void>(session.url, session.method, file, session.headers, options, false);
 }
 
 /**
@@ -579,8 +538,9 @@ export async function uploadFile(
   if (expirationDays !== undefined) {
     formData.append("expirationDays", expirationDays.toString());
   }
+  if (options.requestId) formData.append("requestId", options.requestId);
 
-  return sendUpload<UploadResult>(`${API_BASE}/upload`, "POST", formData, {}, options, true);
+  return sendUpload(formData, options);
 }
 
 export interface BatchDeleteFilesResponse {

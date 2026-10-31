@@ -1,0 +1,4 @@
+interface:
+  display_name: "FileFlow"
+  short_description: "通过脚本上传本地文件，使用 MCP 管理团队文件、到期计划和系统设置"
+  default_prompt: "使用 $fileflow 上传指定本地文件，并检查账号容量和上传结果。"

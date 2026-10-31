@@ -6,6 +6,7 @@ import (
 )
 
 func SetupRouter(r *gin.Engine) {
+	setupMCPRouter(r)
 	r.GET("/api/health", Health)
 	r.POST("/api/auth/login", middleware.AuditMiddleware(), Login)
 	// Public R2 domains and their proxy remain explicit public-sharing endpoints.
@@ -14,8 +15,6 @@ func SetupRouter(r *gin.Engine) {
 	protected.GET("/check", Check)
 	protected.GET("/files", middleware.RequirePermission("read"), GetFiles)
 	protected.POST("/upload", middleware.RequirePermission("write"), Upload)
-	protected.POST("/upload/init", middleware.RequirePermission("write"), InitDirectUpload)
-	protected.POST("/upload/complete", middleware.RequirePermission("write"), CompleteDirectUpload)
 	protected.POST("/files/batch-delete", middleware.RequirePermission("delete"), BatchDeleteFiles)
 	protected.DELETE("/file", middleware.RequirePermission("delete"), DeleteFile)
 	protected.GET("/link", middleware.RequirePermission("read"), GetLink)

@@ -8,7 +8,7 @@ FileFlow 是一个自托管的团队文件管理应用，提供统一的 Web 界
 - **操作记录** - 记录登录、上传、删除、修改成员及设置等操作，保留最近 2000 条记录供管理员查看
 - **多账户管理** - 添加、编辑、删除多个 R2 存储账户，支持配额限制和启用/禁用控制
 - **文件操作** - 懒加载目录浏览、拖拽上传、删除文件，支持生成公开访问链接
-- **直传与中转** - 网页可选择直接上传 R2 或经过服务器中转，支持保留原文件名并拒绝同名覆盖
+- **服务器上传** - 文件和公网 URL 均经过服务器上传到 R2，支持保留原文件名并拒绝同名覆盖
 - **搜索与扁平浏览** - 按文件名或完整路径搜索，跨目录表格浏览、批量删除及修改到期时间
 - **文件预览** - 支持图片、音视频、PDF、文本预览，以及 ZIP 目录分级浏览
 - **智能上传** - 自动选择用量最低的账户进行上传，超额时自动切换备用账户，支持从公网 URL 下载后上传
@@ -20,13 +20,15 @@ FileFlow 是一个自托管的团队文件管理应用，提供统一的 Web 界
 - **API Token** - 支持生成可撤销的 API Token，用于程序化访问
 - **WebDAV 接口** - 标准 WebDAV 协议，支持 Windows/macOS/Linux 文件管理器、Cyberduck 等客户端
 - **开放 API** - 完整的 RESTful API，支持文件列表、上传、删除、获取链接
+- **MCP 接口** - Agent 通过 Streamable HTTP 发现并调用文件、到期计划、团队、账号、设置和凭证管理工具，沿用成员权限、配额和审计
+- **Skill 接入** - 可下载的 FileFlow skill 与 Python 脚本，支持服务器分块上传本地文件，单文件最大 5 GiB
 - **内置指南** - Web 界面内置参数获取指南、代理部署教程、API 文档
 
 ## 快速开始
 
 ### 环境要求
 
-- Go 1.23+
+- Go 1.25+
 - Node.js 20+
 - Docker（可选，用于容器化部署）
 
@@ -84,15 +86,13 @@ go run main.go
 
 当前版本适合单个服务实例。成员与权限迁移覆盖现有数据库后端，但运行多个实例需要额外的数据库并发写入及后台任务协调。
 
-### 直传接口与配额
+### 上传与配额
 
-`POST /api/upload/init` 创建上传任务并返回 PUT 签名地址，`POST /api/upload/complete` 核验 R2 对象后确认完成。原 `/api/upload` 保留服务器中转协议，网页可以选择上传方式。完整参数、示例和 CORS 规则见网页 `/api-docs`。
+`POST /api/upload` 接收文件或公网 URL，统一由 FileFlow 服务上传到 R2。单文件最大 5 GiB，服务器校验实际文件字节数，并核验对象后保存容量与到期记录。保留原文件名时使用条件写入拒绝覆盖现有对象。完整参数和示例见网页 `/api-docs`。
 
-直传单文件最大 5 GiB，非空文件的签名绑定 Content-Length，空文件通过固定的 Content-MD5 校验绑定空内容。保留原文件名时使用条件写入拒绝覆盖现有对象。上传链接有效 15 分钟，任务确认窗口为 1 小时；完成确认可重复调用，容量与到期记录只保存一次。
+后端原子预留并发操作容量与核验读取次数，并在授权写入时计入不可退回的上传次数。账号可配置 Class A 和 Class B 限额，Class B 为 0 时保持旧配置的不限读取行为。目录列表和搜索计 Class A，HEAD/GET 计 Class B；未完成操作只有经清理核验后才释放容量，取消客户端请求不会立即释放预留。
 
-后端原子预留并发任务容量与确认读取次数，并在签发任务时计入不可退回的上传授权次数。账号可配置 Class A 和 Class B 限额，Class B 为 0 时保持旧配置的不限读取行为。目录列表和搜索计 Class A，HEAD/GET 计 Class B；过期任务只有经清理确认后才释放容量，取消客户端传输不会立即释放预留。
-
-此限额控制 FileFlow 授权的任务与请求。签名 URL 的外部重复使用、公开域名访问和其他客户端操作无法由应用硬性封顶；远程用量同步作为保守下限，仍需监控 R2 实际用量。月份以 UTC 计算。网页直传还要求存储桶允许网页来源及签名请求头的 CORS，中转上传可在未配置 CORS 时使用。
+此限额控制 FileFlow 授权的操作与请求。预览/下载签名 URL 的外部重复使用、公开域名访问和其他客户端操作无法由应用硬性封顶；远程用量同步作为保守下限，仍需监控 R2 实际用量。月份以 UTC 计算。网页上传无需配置 R2 上传 CORS。
 
 ### 编译构建
 
@@ -160,6 +160,8 @@ volumes:
 | `FILEFLOW_PORT` | 否 | 8080 | 服务端口 |
 | `FILEFLOW_DATA_DIR` | 否 | ./data | 数据存储目录 |
 | `FILEFLOW_DATABASE_URL` | 否 | - | 数据库连接 URL |
+| `FILEFLOW_MCP_ALLOWED_ORIGINS` | 否 | - | MCP 浏览器客户端允许的精确 Origin，多个用逗号分隔；默认仅接受同站点 Origin 或无 Origin 的原生客户端 |
+| `FILEFLOW_MCP_ALLOWED_HOSTS` | 否 | - | 经本机反向代理接入 MCP 时允许的公开 Host（可含端口），多个用逗号分隔；未配置时保留 SDK 的 DNS 重新绑定保护 |
 
 ### 数据库配置
 
@@ -228,7 +230,7 @@ volumes:
 
 ## 开放 API
 
-FileFlow 提供 RESTful API 供外部应用调用，需使用 API Token 认证。
+FileFlow 提供 RESTful API 供外部应用调用，使用 `Authorization: Bearer ...` 认证。文件接口支持 API Token 或成员登录获得的 JWT；账号、到期计划和系统管理等网页接口要求 JWT，管理操作还要求当前成员具有 `manage` 权限。
 
 ### 认证方式
 
@@ -238,35 +240,95 @@ curl -H "Authorization: Bearer your-api-token" https://your-domain/api/files
 
 ### API 端点
 
-| 方法 | 路径 | 权限 | 说明 |
-|------|------|------|------|
-| GET | `/api/files` | read | 获取文件列表（懒加载+分页） |
-| POST | `/api/upload` | write | 上传文件 |
-| GET | `/api/link` | read | 获取文件公开链接 |
-| DELETE | `/api/file` | delete | 删除文件 |
+| 方法 | 路径 | 权限 | 认证 | 说明 |
+| --- | --- | --- | --- | --- |
+| GET | `/api/files` | read | JWT / Token | 目录浏览、搜索、扁平浏览和分页 |
+| POST | `/api/upload` | write | JWT / Token | 文件或公网 URL 经服务器中转上传 |
+| GET | `/api/link` | read | JWT / Token | 获取文件公开链接 |
+| GET | `/api/file-preview` | read | JWT / Token | 文本、ZIP 索引和预览/下载签名链接 |
+| DELETE | `/api/file` | delete | JWT / Token | 删除单个文件 |
+| POST | `/api/files/batch-delete` | delete | JWT / Token | 按 key 批量删除，逐项返回结果 |
+| PATCH | `/api/files/expirations` | write | JWT | 为文件设置到期时间或永久 |
+| GET | `/api/file-expirations` | read | JWT | 查看到期计划 |
+| PATCH | `/api/file-expirations` | write | JWT | 按计划 ID 批量修改到期时间 |
+| PATCH | `/api/file-expirations/:id` | write | JWT | 修改单条到期计划 |
+| POST | `/api/file-expirations/batch-delete` | delete | JWT | 立即批量删除计划对应的文件 |
+| DELETE | `/api/file-expirations/:id` | delete | JWT | 立即删除计划对应的文件 |
+| GET | `/api/accounts`、`/api/accounts/:id`、`/api/accounts/stats` | read | JWT | 账号列表、详情和统计 |
+| GET | `/api/settings` | read | JWT | 读取系统设置 |
+
+团队成员、存储账号、API Token、WebDAV 凭证、系统设置修改和审计接口均要求 JWT 与 `manage`。长期管理 Agent 可使用下述 MCP 管理令牌接入 `/mcp`。
 
 ### 请求参数
 
 **GET /api/files**
+
 - `idGroup` - 账户 ID（逗号分隔多个）
 - `prefix` - 目录前缀
 - `cursor` - 分页游标
 - `limit` - 每页数量（默认 50，最大 100）
+- `q` - 不区分大小写的完整文件路径搜索；非空时启用扁平浏览
+- `flat` - `true` 表示跨目录扁平浏览
+
+搜索和扁平浏览初始请求最多查询 20 个账号，游标续页必须指定单个账号。每个账号最多读取一个 LIST 批次；当前页没有匹配文件也可能有 `nextCursor`，应继续检查后续游标。
 
 **POST /api/upload**（multipart/form-data）
+
 - `file` - 上传的文件（与 url 二选一）
 - `url` - 远程文件 URL，从该地址下载后上传（与 file 二选一）
 - `path` - 自定义存储路径
 - `idGroup` - 指定账户 ID
 - `expirationDays` - 文件有效期（天），不填或 -1=使用系统默认，0=永久，>0=指定天数
+- `randomFilename` - 默认 `true` 随机命名；设为 `false` 保留原文件名
+- `requestId` - 可选客户端上传请求 ID，最多 128 个字符；同一文件上传重试时复用，新上传使用新 ID
 
-> 文件上传后会自动重命名为 `{uuid}_{timestamp}.{ext}` 格式，确保文件名唯一。
+默认文件名为 `{uuid}_{timestamp}.{ext}`；保留原文件名时拒绝同名覆盖。上传经过服务器，沿用容量预留、请求计数及到期规则。单文件最大 5 GiB。
 
-**GET /api/link** / **DELETE /api/file**
+传入 `requestId` 时，服务器将请求绑定到当前凭证、上传参数和文件内容 SHA-256。已完成上传的相同请求重试返回原结果，避免重复 PUT；相同 ID 使用不同内容或参数返回 409。MCP 的文件内容和 URL 上传工具也支持此参数。
+
+已完成上传的去重信息保留 24 小时。超过此窗口后，先检查目标文件是否已上传，再决定是否使用新的请求 ID 上传，避免重复文件。
+
+**GET /api/link** / **GET /api/file-preview** / **DELETE /api/file**
+
 - `idGroup` - 账户 ID（必填）
 - `key` - 文件路径（必填）
 
-详细文档请参考 Web 界面「API 文档」页面。
+**POST /api/files/batch-delete** 使用 JSON `{"accountId":"...","keys":["path/file.txt"]}`，每批最多 100 个 key。**PATCH /api/files/expirations** 在相同字段上增加 `expiresAt`，使用未来 RFC3339 时间，或 `null` 表示永久。
+
+详细请求、响应和额度说明请参考 Web 界面 `/api-docs`。
+
+## MCP 接口
+
+FileFlow 内置 Model Context Protocol 服务，端点为 `/mcp`，使用无状态 Streamable HTTP 和 Bearer 认证。Agent 可通过 `tools/list` 发现当前凭证有权使用的工具，并通过 `tools/call` 执行文件浏览、搜索、上传、预览、下载链接、批量删除、到期计划，以及团队、存储账号、系统设置、API Token、WebDAV 凭证和审计管理。
+
+所有者或管理员在「设置 → 令牌管理」创建专用令牌。选择 **MCP 管理** 会同时授予 `read`、`write`、`delete`、`manage`，允许 Agent 全量操作；仅处理文件的 Agent 可选择相应文件权限。管理权限只在 MCP 生效，REST 管理接口仍仅接受 JWT。成员停用、角色变更和令牌撤销在后续请求中立即生效。
+
+例如，在 Agent 进程的环境变量中设置 `FILEFLOW_MCP_TOKEN`，并为 Codex 配置：
+
+```toml
+[mcp_servers.fileflow]
+url = "https://your-domain/mcp"
+bearer_token_env_var = "FILEFLOW_MCP_TOKEN"
+```
+
+MCP 支持 Base64 文件上传（解码后最多 8 MiB）和公网 URL 上传（单文件最多 5 GiB），均经过服务器。大于 8 MiB 的 Agent 本地文件使用 multipart `POST /api/upload`，最多 5 GiB。复制/移动通过服务器读取、临时保存并条件写入目标；工具不会读取任意服务器本地路径。上传容量预留、Class A/B 计数和审计规则与现有接口一致。
+
+完整配置、工具表、协议示例和额度说明见 [MCP 接入文档](docs/mcp.md)，或 Web 界面的 `/mcp-docs`。Codex 配置字段见[官方 OpenAI 文档](https://developers.openai.com/codex/mcp/)。
+
+## Skill 接入
+
+网页 `/skill-docs` 提供独立使用说明和 FileFlow skill 下载；构建包位于 `/assets/fileflow-skill.zip`，也提供公开接口 `GET /api/skill/download`。也可使用仓库中的 `skills/fileflow`。将整个 `fileflow` 目录安装到 `~/.codex/skills/fileflow`，或项目的 `.agents/skills/fileflow`，供 Agent 发现 `SKILL.md`。
+
+配套脚本仅依赖 Python 3.10 及以上版本标准库。设置 `FILEFLOW_URL` 为服务根地址，`FILEFLOW_TOKEN` 为专用 API Token，然后执行：
+
+```bash
+python3 ~/.codex/skills/fileflow/scripts/fileflow.py tools
+python3 ~/.codex/skills/fileflow/scripts/fileflow.py upload /path/to/report.zip --account "<ACCOUNT_ID>" --path documents --keep-name --expiration-days 0 --request-id report-upload-001
+```
+
+脚本按块读取本地文件，直接提交 FileFlow 的 multipart 上传接口，不把文件放进 MCP JSON 或 Agent 上下文，因此可上传大于 8 MiB 的文件。单文件仍不得超过 5 GiB，且必须满足账号可用容量和请求额度；上传经过服务器。其他文件和管理操作可用脚本 `call` 调用相应 MCP 工具，权限沿用专用令牌及所属成员当前角色。
+
+脚本不自动重试，结果包含 `requestId`；核实结果后，在 24 小时去重窗口内用相同文件、参数和 ID 重试。完整安装、命令与输出说明见 [Skill 使用说明](docs/skill.md)。下载包不包含任何部署凭证。
 
 ## WebDAV 接口
 
@@ -346,9 +408,12 @@ curl -u username:password -X DELETE "http://localhost:8080/webdav/path/file.txt"
 
 ## Web 界面
 
+首页及参数指南、代理部署、API、WebDAV、MCP、Skill 使用说明均可免登录查看。仪表盘与文件管理需要登录，团队成员和设置还需管理权限。
+
 | 页面 | 路径 | 说明 |
 |------|------|------|
-| 仪表盘 | `/` | 账户概览、用量统计 |
+| 首页 | `/` | 产品介绍、公开文档与登录入口 |
+| 仪表盘 | `/dashboard` | 账户概览、用量统计，需登录 |
 | 文件管理 | `/files` | 文件浏览、上传、删除 |
 | 计划删除 | `/scheduled-deletions` | 查看和管理计划删除的文件 |
 | 设置 | `/settings` | 账户管理、令牌管理、WebDAV 凭证、系统设置 |
@@ -356,6 +421,8 @@ curl -u username:password -X DELETE "http://localhost:8080/webdav/path/file.txt"
 | 代理部署 | `/proxy-guide` | 外置代理部署教程 |
 | API 文档 | `/api-docs` | 开放 API 使用说明 |
 | WebDAV 接口 | `/webdav-docs` | WebDAV 接口使用说明 |
+| MCP 使用说明 | `/mcp-docs` | 独立页面，包含 Agent 连接配置、权限、完整工具表及协议示例 |
+| Skill 使用说明 | `/skill-docs` | Skill 下载、安装、Python 脚本与大文件上传说明 |
 
 ## 项目结构
 
